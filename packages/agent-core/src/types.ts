@@ -1,0 +1,97 @@
+export type ChatRole = "system" | "user" | "assistant";
+
+export interface ChatMessage {
+  role: ChatRole;
+  content: string;
+}
+
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+}
+
+export interface LlmRequest {
+  messages: ChatMessage[];
+}
+
+export type LlmEvent =
+  | { type: "text.delta"; text: string }
+  | { type: "done"; usage?: TokenUsage }
+  | { type: "error"; message: string };
+
+export interface LlmProvider {
+  readonly id: string;
+  readonly model: string;
+  chat(request: LlmRequest): AsyncIterable<LlmEvent>;
+  supportsTools(): boolean;
+  supportsVision(): boolean;
+  getContextWindow(): number;
+}
+
+export type AgentEvent =
+  | { type: "run.started"; provider: string; model: string }
+  | { type: "text.delta"; text: string }
+  | { type: "run.completed"; usage?: TokenUsage }
+  | { type: "run.error"; message: string };
+
+export interface Chat {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoredMessage {
+  id: string;
+  chatId: string;
+  role: ChatRole;
+  content: string;
+  provider: string | null;
+  model: string | null;
+  createdAt: string;
+}
+
+export interface NewMessageInput {
+  chatId: string;
+  role: ChatRole;
+  content: string;
+  provider?: string;
+  model?: string;
+}
+
+export interface RunRecord {
+  id: string;
+  chatId: string;
+  messageId: string;
+  provider: string;
+  model: string;
+  status: "success" | "error";
+  tokensIn: number | null;
+  tokensOut: number | null;
+  durationMs: number;
+  createdAt: string;
+}
+
+export interface NewRunInput {
+  chatId: string;
+  messageId: string;
+  provider: string;
+  model: string;
+  status: "success" | "error";
+  tokensIn?: number;
+  tokensOut?: number;
+  durationMs: number;
+}
+
+export interface ChatStorage {
+  createChat(title: string): Chat;
+  listChats(): Chat[];
+  getChat(id: string): Chat | undefined;
+  deleteChat(id: string): void;
+  touchChat(id: string): void;
+
+  listMessages(chatId: string): StoredMessage[];
+  addMessage(input: NewMessageInput): StoredMessage;
+
+  addRun(input: NewRunInput): RunRecord;
+}

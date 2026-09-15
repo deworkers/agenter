@@ -1,0 +1,25 @@
+{
+  "name": "@agenter/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agenter/agent-core": "0.1.0",
+    "@agenter/storage": "0.1.0",
+    "@agenter/provider-openai-compatible": "0.1.0",
+    "express": "5.2.1"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vitest": "5.0.0",
+    "tsx": "4.23.13",
+    "@types/express": "5.0.6",
+    "@types/node": "26.5.1"
+  }
+}
