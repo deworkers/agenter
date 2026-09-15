@@ -1,0 +1,9 @@
+/* apps/web/src/style.css */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+}
