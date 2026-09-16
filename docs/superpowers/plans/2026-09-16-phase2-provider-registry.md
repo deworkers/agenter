@@ -1,5 +1,7 @@
 # Phase 2: Provider Abstraction & Multi-Provider Registry Implementation Plan
 
+> **Status: DONE (2026-09-16).** All 5 tasks implemented and committed (`a3a8f28`, `ecdab3d`, `3deaa1f`, `762bb8a`, `817f9d2`). Full workspace `npm test`/`npm run typecheck`/`npm run lint` pass. The Phase 8 web provider-selector UI was also implemented ahead of schedule (`4dc166c`) since it was a natural pairing with `GET /api/providers`'s new response shape.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let the app run with multiple configured OpenAI-compatible providers (e.g. a fast local model and a coding-focused local model) and switch between them per request, via a `ProviderRegistry` that `AgentRuntime` selects from.
@@ -76,7 +78,7 @@ agenter/
 - Consumes: `LlmProvider` (from `./types.js`, existing).
 - Produces: `class ProviderRegistry` with constructor `(defaultProviderId: string)`, methods `register(provider: LlmProvider): void`, `get(id: string): LlmProvider | undefined`, `list(): LlmProvider[]`, `getDefaultId(): string`, `getDefault(): LlmProvider` (throws if the default id was never registered). Task 2 (`AgentRuntime`) and Task 5 (`apps/api` routes/bootstrap) both consume this.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/agent-core/src/ProviderRegistry.test.ts
@@ -134,7 +136,7 @@ describe("ProviderRegistry", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 cd packages/agent-core
@@ -143,7 +145,7 @@ npx vitest run src/ProviderRegistry.test.ts
 
 Expected: FAIL — `Cannot find module './ProviderRegistry.js'`.
 
-- [ ] **Step 3: Implement `ProviderRegistry.ts`**
+- [x] **Step 3: Implement `ProviderRegistry.ts`**
 
 ```ts
 // packages/agent-core/src/ProviderRegistry.ts
@@ -180,7 +182,7 @@ export class ProviderRegistry {
 }
 ```
 
-- [ ] **Step 4: Run test again, confirm it passes**
+- [x] **Step 4: Run test again, confirm it passes**
 
 ```bash
 npx vitest run src/ProviderRegistry.test.ts
@@ -188,7 +190,7 @@ npx vitest run src/ProviderRegistry.test.ts
 
 Expected: all 4 tests PASS.
 
-- [ ] **Step 5: Export it from the barrel**
+- [x] **Step 5: Export it from the barrel**
 
 ```ts
 // packages/agent-core/src/index.ts
@@ -198,7 +200,7 @@ export * from "./ProviderRegistry.js";
 export * from "./AgentRuntime.js";
 ```
 
-- [ ] **Step 6: Typecheck, lint, test the whole package**
+- [x] **Step 6: Typecheck, lint, test the whole package**
 
 ```bash
 cd ../..
@@ -209,7 +211,7 @@ npm run lint
 
 Expected: no errors, all tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/agent-core
@@ -228,7 +230,7 @@ git commit -m "feat(agent-core): add ProviderRegistry"
 - Consumes: `ProviderRegistry` (Task 1).
 - Produces: `class AgentRuntime` with constructor `(registry: ProviderRegistry, storage: ChatStorage, systemPrompt?: string)` and `runTurn(chatId: string, userMessage: string, providerId?: string): AsyncGenerator<AgentEvent>`. Task 5 (`apps/api`) constructs one `AgentRuntime` per process with the full registry (not a single provider), and `ChatService.sendMessage` forwards an optional `providerId` through to it.
 
-- [ ] **Step 1: Replace the contents of `AgentRuntime.test.ts`**
+- [x] **Step 1: Replace the contents of `AgentRuntime.test.ts`**
 
 ```ts
 // packages/agent-core/src/AgentRuntime.test.ts
@@ -399,7 +401,7 @@ describe("AgentRuntime.runTurn", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 cd packages/agent-core
@@ -408,7 +410,7 @@ npx vitest run src/AgentRuntime.test.ts
 
 Expected: FAIL — `AgentRuntime`'s constructor still expects `(provider, storage, systemPrompt?)`, so passing a `ProviderRegistry` as the first argument breaks the "named provider"/"unknown provider" assertions.
 
-- [ ] **Step 3: Update `AgentRuntime.ts`**
+- [x] **Step 3: Update `AgentRuntime.ts`**
 
 ```ts
 // packages/agent-core/src/AgentRuntime.ts
@@ -491,7 +493,7 @@ export class AgentRuntime {
 }
 ```
 
-- [ ] **Step 4: Run test again, confirm it passes**
+- [x] **Step 4: Run test again, confirm it passes**
 
 ```bash
 npx vitest run src/AgentRuntime.test.ts
@@ -499,7 +501,7 @@ npx vitest run src/AgentRuntime.test.ts
 
 Expected: all 4 tests PASS.
 
-- [ ] **Step 5: Typecheck, lint, test the whole package**
+- [x] **Step 5: Typecheck, lint, test the whole package**
 
 ```bash
 cd ../..
@@ -510,7 +512,7 @@ npm run lint
 
 Expected: no errors, all tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/agent-core
@@ -532,13 +534,13 @@ git commit -m "feat(agent-core): AgentRuntime selects provider from ProviderRegi
 - Consumes: nothing new.
 - Produces: `interface ProviderConfigEntry { id: string; type: "openai-compatible"; baseUrl: string; apiKey: string; model: string; contextWindow?: number }`, `interface AppConfig { port: number; dbPath: string; providers: ProviderConfigEntry[]; defaultProviderId: string }`, `loadConfig(): AppConfig`, `loadConfigFromFile(path: string): { providers: ProviderConfigEntry[]; defaultProviderId: string }`, and `interpolateEnv(value: string): string` (all exported, the last two for the test). Task 4 (`providerFactory.ts`) consumes `AppConfig.providers` and `AppConfig.defaultProviderId`.
 
-- [ ] **Step 1: Add the `yaml` dependency**
+- [x] **Step 1: Add the `yaml` dependency**
 
 ```bash
 npm install yaml@2.9.1 --workspace=@agenter/api --save-exact
 ```
 
-- [ ] **Step 2: Create `config/providers.yaml`**
+- [x] **Step 2: Create `config/providers.yaml`**
 
 ```yaml
 defaultProvider: local-fast
@@ -559,7 +561,7 @@ providers:
 
 This mirrors PROMT.md §5's own example exactly (`local-fast` / `local-code`, both `openai-compatible`, sharing a `baseUrl` — the same LM Studio-style server hosting two loaded models) plus a top-level `defaultProvider` key the spec's snippet doesn't show but which Phase 2 needs (no router yet to pick one at request time). Adjust `baseUrl`/`model` values to match whatever's actually running locally when following this plan.
 
-- [ ] **Step 3: Update `.env.example`**
+- [x] **Step 3: Update `.env.example`**
 
 Replace the `PROVIDER_*` block:
 
@@ -570,7 +572,7 @@ DB_PATH=./data/agenter.db
 
 (No secrets needed for local OpenAI-compatible servers using a placeholder key like `local`. If a configured provider ever needs a real key, add it here as `SOME_PROVIDER_API_KEY=` and reference it from `config/providers.yaml` as `apiKey: ${SOME_PROVIDER_API_KEY}`.)
 
-- [ ] **Step 4: Write the failing test for env interpolation and YAML loading**
+- [x] **Step 4: Write the failing test for env interpolation and YAML loading**
 
 ```ts
 // apps/api/src/config.test.ts
@@ -671,7 +673,7 @@ describe("loadConfigFromFile", () => {
 });
 ```
 
-- [ ] **Step 5: Run test to verify it fails**
+- [x] **Step 5: Run test to verify it fails**
 
 ```bash
 cd apps/api
@@ -680,7 +682,7 @@ npx vitest run src/config.test.ts
 
 Expected: FAIL — `interpolateEnv`/`loadConfigFromFile` are not exported yet.
 
-- [ ] **Step 6: Rewrite `config.ts`**
+- [x] **Step 6: Rewrite `config.ts`**
 
 ```ts
 // apps/api/src/config.ts
@@ -762,7 +764,7 @@ export function loadConfig(): AppConfig {
 }
 ```
 
-- [ ] **Step 7: Run test again, confirm it passes**
+- [x] **Step 7: Run test again, confirm it passes**
 
 ```bash
 npx vitest run src/config.test.ts
@@ -770,7 +772,7 @@ npx vitest run src/config.test.ts
 
 Expected: all 5 tests PASS.
 
-- [ ] **Step 8: Typecheck and lint**
+- [x] **Step 8: Typecheck and lint**
 
 ```bash
 cd ../..
@@ -781,7 +783,7 @@ npm run lint
 
 Expected: no errors. (`loadConfig()` itself isn't called by any test yet — it's exercised in Task 5's bootstrap.)
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add apps/api/src/config.ts apps/api/src/config.test.ts apps/api/package.json config/providers.yaml .env.example package-lock.json
@@ -802,7 +804,7 @@ git commit -m "feat(api): load provider config from YAML with env-var interpolat
 
 This is the one file in `apps/api` allowed to import the concrete `OpenAICompatibleProvider` class — everything downstream (`ChatService`, `AgentRuntime`) only sees `ProviderRegistry`/`LlmProvider`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // apps/api/src/providerFactory.test.ts
@@ -854,7 +856,7 @@ describe("buildProviderRegistry", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 cd apps/api
@@ -863,7 +865,7 @@ npx vitest run src/providerFactory.test.ts
 
 Expected: FAIL — `./providerFactory.js` doesn't exist yet.
 
-- [ ] **Step 3: Implement `providerFactory.ts`**
+- [x] **Step 3: Implement `providerFactory.ts`**
 
 ```ts
 // apps/api/src/providerFactory.ts
@@ -896,7 +898,7 @@ export function buildProviderRegistry(config: {
 
 `ProviderRegistry`'s constructor (Task 1) takes `defaultProviderId` up front; `getDefault()` throws `Default provider "<id>" is not registered` if no registered provider matches it. Calling it once here — after all entries are registered — turns a misconfigured `defaultProvider` in `providers.yaml` into an immediate startup failure instead of a silent one that only surfaces on the first request.
 
-- [ ] **Step 4: Run test again, confirm it passes**
+- [x] **Step 4: Run test again, confirm it passes**
 
 ```bash
 npx vitest run src/providerFactory.test.ts
@@ -904,7 +906,7 @@ npx vitest run src/providerFactory.test.ts
 
 Expected: all 4 tests PASS.
 
-- [ ] **Step 5: Typecheck, lint, full workspace test**
+- [x] **Step 5: Typecheck, lint, full workspace test**
 
 ```bash
 cd ../..
@@ -915,7 +917,7 @@ npm test
 
 Expected: no errors, all tests across the workspace PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/providerFactory.ts apps/api/src/providerFactory.test.ts
@@ -936,7 +938,7 @@ git commit -m "feat(api): build ProviderRegistry from config"
 - Consumes: `AgentRuntime` with the new `(registry, storage, systemPrompt?)` constructor and `runTurn(chatId, userMessage, providerId?)` signature (Task 2), `buildProviderRegistry` (Task 4), `loadConfig` (Task 3).
 - Produces: `ChatService.sendMessage(chatId: string, content: string, providerId?: string): AsyncGenerator<AgentEvent>` (consumed by `routes/messages.ts`); `GET /api/providers` responds `{ providers: { id: string; model: string }[]; defaultProviderId: string }`.
 
-- [ ] **Step 1: Update `ChatService.sendMessage` to accept and forward `providerId`**
+- [x] **Step 1: Update `ChatService.sendMessage` to accept and forward `providerId`**
 
 In `apps/api/src/services/ChatService.ts`, change:
 
@@ -956,7 +958,7 @@ sendMessage(chatId: string, content: string, providerId?: string) {
 
 (Match whatever the surrounding method looks like exactly — this is a one-line signature/call change, no other logic in `ChatService` needs to move.)
 
-- [ ] **Step 2: Update `routes/messages.ts` to read `providerId` from the request body**
+- [x] **Step 2: Update `routes/messages.ts` to read `providerId` from the request body**
 
 Find where the current handler destructures the POST body (e.g. `const { content } = req.body;`) and change it to also read `providerId`:
 
@@ -966,7 +968,7 @@ const { content, providerId } = req.body as { content?: string; providerId?: str
 
 Then pass it through to `chatService.sendMessage(chatId, content, providerId)`. Leave existing validation (missing/empty `content`) untouched; `providerId` is optional and falls through to `AgentRuntime`'s default-provider path when omitted.
 
-- [ ] **Step 3: Update `routes/providers.ts` to report all registered providers plus the default**
+- [x] **Step 3: Update `routes/providers.ts` to report all registered providers plus the default**
 
 Replace its current body with a handler that reads from the `ProviderRegistry` (passed in via whatever DI the route module already uses to reach `AgentRuntime`/services — follow the existing pattern in this file for how it gets access to shared state, e.g. a factory function taking dependencies):
 
@@ -979,7 +981,7 @@ router.get("/providers", (_req, res) => {
 });
 ```
 
-- [ ] **Step 4: Update `apps/api/src/index.ts` bootstrap**
+- [x] **Step 4: Update `apps/api/src/index.ts` bootstrap**
 
 Replace the current single-provider construction:
 
@@ -998,7 +1000,7 @@ const runtime = new AgentRuntime(registry, storage);
 
 and thread `registry` through to wherever `routes/providers.ts` is mounted (following the existing route-wiring pattern in this file — e.g. if routes are built via a factory function like `createProvidersRouter(registry)`, update that call site).
 
-- [ ] **Step 5: Manual verification**
+- [x] **Step 5: Manual verification**
 
 Start the API against `config/providers.yaml`'s two entries (adjust `baseUrl`/model to whatever's actually running locally):
 
@@ -1030,7 +1032,7 @@ curl -N -X POST "http://localhost:3000/api/chats/$CHAT_ID/messages" \
 
 Expected: both requests stream `run.started` (check the `provider`/`model` fields differ between the two responses) followed by `text.delta` events and a `run.completed`. Stop the dev server (`Ctrl+C`) once confirmed.
 
-- [ ] **Step 6: Typecheck, lint, full workspace test**
+- [x] **Step 6: Typecheck, lint, full workspace test**
 
 ```bash
 npm run typecheck
@@ -1040,7 +1042,7 @@ npm test
 
 Expected: no errors, all tests PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/services/ChatService.ts apps/api/src/routes/messages.ts apps/api/src/routes/providers.ts apps/api/src/index.ts
