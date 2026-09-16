@@ -1,6 +1,16 @@
 // apps/web/src/api/types.ts
 export type ChatRole = "system" | "user" | "assistant";
 
+export interface ProviderSummary {
+  id: string;
+  model: string;
+}
+
+export interface ProvidersResponse {
+  providers: ProviderSummary[];
+  defaultProviderId: string;
+}
+
 export interface Chat {
   id: string;
   title: string;

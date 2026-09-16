@@ -35,8 +35,8 @@ export function useChats() {
     await refreshChats();
   }
 
-  async function sendMessage(content: string): Promise<void> {
-    if (!activeChat.value) return;
+  async function sendMessage(content: string, providerId?: string): Promise<void> {
+    if (!activeChat.value || isStreaming.value) return;
     const chatId = activeChat.value.id;
 
     messages.value.push({
@@ -55,7 +55,7 @@ export function useChats() {
     let model: string | null = null;
 
     try {
-      for await (const event of client.sendMessage(chatId, content)) {
+      for await (const event of client.sendMessage(chatId, content, providerId)) {
         if (event.type === "run.started") {
           provider = event.provider;
           model = event.model;
@@ -66,6 +66,8 @@ export function useChats() {
           assistantText = `⚠ ${event.message}`;
         }
       }
+    } catch (error) {
+      assistantText = `⚠ ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       isStreaming.value = false;
     }

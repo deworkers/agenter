@@ -1,5 +1,5 @@
 // apps/web/src/api/client.ts
-import type { AgentEvent, Chat, StoredMessage } from "./types.js";
+import type { AgentEvent, Chat, StoredMessage, ProvidersResponse } from "./types.js";
 
 async function json<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -10,6 +10,10 @@ async function json<T>(response: Response): Promise<T> {
 
 export async function listChats(): Promise<Chat[]> {
   return json(await fetch("/api/chats"));
+}
+
+export async function listProviders(): Promise<ProvidersResponse> {
+  return json(await fetch("/api/providers"));
 }
 
 export async function createChat(title?: string): Promise<Chat> {
@@ -33,11 +37,11 @@ export async function deleteChat(id: string): Promise<void> {
   }
 }
 
-export async function* sendMessage(chatId: string, content: string): AsyncGenerator<AgentEvent> {
+export async function* sendMessage(chatId: string, content: string, providerId?: string): AsyncGenerator<AgentEvent> {
   const response = await fetch(`/api/chats/${chatId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, providerId }),
   });
 
   if (!response.ok || !response.body) {

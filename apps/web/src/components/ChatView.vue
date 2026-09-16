@@ -1,17 +1,24 @@
 <script setup lang="ts">
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import type { StoredMessage } from "../api/types.js";
+import type { StoredMessage, ProviderSummary } from "../api/types.js";
 import MessageInput from "./MessageInput.vue";
 
 defineProps<{
   messages: StoredMessage[];
   isStreaming: boolean;
   hasActiveChat: boolean;
+  providers: ProviderSummary[];
+  defaultProviderId: string;
+  providersLoading: boolean;
+  providersError: string | null;
 }>();
+
+const providerId = defineModel<string>("providerId", { required: true });
 
 const emit = defineEmits<{
   send: [content: string];
+  retryProviders: [];
 }>();
 
 function renderMarkdown(content: string): string {
@@ -55,7 +62,7 @@ function renderMarkdown(content: string): string {
               v-if="message.role === 'assistant' && message.model"
               class="message-meta"
             >
-              {{ message.model }}
+              {{ message.provider ? `${message.provider} · ` : '' }}{{ message.model }}
             </div>
           </div>
         </div>
@@ -77,8 +84,44 @@ function renderMarkdown(content: string): string {
         </div>
       </div>
 
+      <div class="provider-picker">
+        <label for="provider-select">Provider</label>
+        <select
+          id="provider-select"
+          v-model="providerId"
+          :disabled="isStreaming || providersLoading || !!providersError || !providers.length"
+        >
+          <option
+            v-if="!providers.length"
+            value=""
+          >
+            {{ providersLoading ? 'Loading providers…' : 'Providers unavailable' }}
+          </option>
+          <option
+            v-for="provider in providers"
+            :key="provider.id"
+            :value="provider.id"
+          >
+            {{ provider.id }} — {{ provider.model }}{{ provider.id === defaultProviderId ? ' (default)' : '' }}
+          </option>
+        </select>
+        <div
+          v-if="providersError"
+          class="provider-error"
+          role="alert"
+        >
+          <span>Could not load providers: {{ providersError }}</span>
+          <button
+            type="button"
+            :disabled="providersLoading || isStreaming"
+            @click="emit('retryProviders')"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
       <MessageInput
-        :disabled="isStreaming"
+        :disabled="isStreaming || providersLoading || !!providersError || !providerId"
         @send="(content) => emit('send', content)"
       />
     </template>

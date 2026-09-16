@@ -85,3 +85,13 @@ body { margin: 0; font-family: "Inter", system-ui, sans-serif; color: var(--text
 .message-input button { flex-shrink: 0; width: 36px; height: 36px; border: none; border-radius: 50%; background: var(--accent); color: var(--accent-text); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s ease; }
 .message-input button:hover:not(:disabled) { background: var(--accent-hover); }
 .message-input button:disabled { background: #d8d8e4; cursor: default; }
+
+.chat-view { min-width: 0; }
+.provider-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 20px 0; border-top: 1px solid var(--border); }
+.provider-picker label { font-size: 13px; font-weight: 600; }
+.provider-picker select { min-width: 0; max-width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); background: var(--sidebar-bg); font: inherit; font-size: 13px; }
+.provider-picker select:focus-visible, .provider-error button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.provider-picker select:disabled { opacity: 0.65; }
+.provider-picker + .message-input { border-top: 0; }
+.provider-error { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; width: 100%; color: #b42318; font-size: 13px; overflow-wrap: anywhere; }
+.provider-error button { padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); cursor: pointer; }
