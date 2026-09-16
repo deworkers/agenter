@@ -1,34 +1,34 @@
-# Phase 2: Provider Abstraction, Anthropic Provider & Provider Registry — Implementation Plan
+# Phase 2: Provider Abstraction & Multi-Provider Registry Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let the app run with more than one configured LLM provider — add `AnthropicProvider` alongside the existing `OpenAICompatibleProvider`, introduce a `ProviderRegistry` that `AgentRuntime` selects from, and move provider configuration out of flat env vars into `config/providers.yaml` with `${VAR}` env-var interpolation, per PROMT.md §4/§5.
+**Goal:** Let the app run with multiple configured OpenAI-compatible providers (e.g. a fast local model and a coding-focused local model) and switch between them per request, via a `ProviderRegistry` that `AgentRuntime` selects from.
 
-**Architecture:** `ProviderRegistry` (new, in `packages/agent-core`) holds `LlmProvider` instances keyed by id and knows which one is the configured default; it only ever sees the `LlmProvider` interface, never concrete provider classes. `AgentRuntime.runTurn` gains an optional `providerId` parameter — when given, it looks up that provider in the registry; when omitted, it uses the registry's default. `apps/api` (the composition root) is the only place that imports concrete provider classes (`OpenAICompatibleProvider`, `AnthropicProvider`) and registers instances into the registry, via a new `providerFactory.ts`. Configuration moves from `PROVIDER_*` env vars to `config/providers.yaml`, parsed and env-interpolated by a rewritten `apps/api/src/config.ts`. No `ProviderRouter`, no `TaskType`, no `routing.yaml` yet — those are Phase 3.
+**Architecture:** `ProviderRegistry` (new, in `packages/agent-core`) holds `LlmProvider` instances keyed by id and knows which one is the configured default; it only ever sees the `LlmProvider` interface, never a concrete provider class. `AgentRuntime.runTurn` gains an optional `providerId` parameter — when given, it looks up that provider in the registry; when omitted, it uses the registry's default. `apps/api` (the composition root) is the only place that imports a concrete provider class (`OpenAICompatibleProvider`) and registers instances into the registry, via a new `providerFactory.ts`. Configuration moves from `PROVIDER_*` env vars to `config/providers.yaml`, listing multiple named OpenAI-compatible endpoints, parsed and env-interpolated by a rewritten `apps/api/src/config.ts`. `AnthropicProvider` is explicitly out of scope for this phase (per user decision, not a capability gap) — the config schema keeps a `type` discriminator so adding it later doesn't require reshaping `ProviderConfigEntry`/`ProviderRegistry`. No `ProviderRouter`, no `TaskType`, no `routing.yaml`, no frontend provider selector yet — those are Phase 3 and Phase 8.
 
-**Tech Stack:** Same as Phase 1 (Node.js with `node:sqlite`, TypeScript strict, Express, Vitest, npm workspaces), plus two new exact-pinned dependencies: `@anthropic-ai/sdk` (in `packages/providers/anthropic`) and `yaml` (in `apps/api`).
+**Tech Stack:** Same as Phase 1 (Node.js with `node:sqlite`, TypeScript strict, Express, Vitest, npm workspaces), plus one new exact-pinned dependency: `yaml` (in `apps/api`).
 
-**Spec:** `PROMT.md` §4 (Provider abstraction, `AnthropicProvider`), §5 (`ProviderRegistry`, YAML config, env var interpolation, no secrets in git). §6 (`ProviderRouter`) is explicitly deferred to the Phase 3 plan.
+**Spec:** `PROMT.md` §4 (provider abstraction — `OpenAICompatibleProvider` only for this phase), §5 (`ProviderRegistry`, YAML config, env var interpolation, no secrets in git). §6 (`ProviderRouter`) and §14 (frontend model selector) are explicitly deferred to later phases.
 
 ## Global Constraints
 
 - Node.js >=24.0.0, using built-in `node:sqlite` — unchanged from Phase 1.
 - TypeScript strict mode (`tsconfig.base.json`) — every new/modified package extends it unchanged.
 - All new dependencies pinned to an exact version (no `^`/`~` ranges) via `npm install <pkg> --save-exact`, matching every existing dependency in this repo.
-- No real API keys committed to git. Real secrets (e.g. `ANTHROPIC_API_KEY`) are referenced from `config/providers.yaml` as `${ANTHROPIC_API_KEY}` and resolved from `.env` at load time; only non-secret placeholder values (e.g. `apiKey: local` for a local server) may be literal in `config/providers.yaml`.
-- `AgentRuntime` and all of `packages/agent-core` stay provider-agnostic — they depend only on the `LlmProvider` interface, never on `OpenAICompatibleProvider`/`AnthropicProvider` directly (PROMT.md §4).
+- No real API keys committed to git. Any provider entry needing a real secret references it as `${VAR_NAME}` in `config/providers.yaml`, resolved from `.env` at load time; only non-secret placeholder values (e.g. `apiKey: local` for a local server) may be literal in `config/providers.yaml`.
+- `AgentRuntime` and all of `packages/agent-core` stay provider-agnostic — they depend only on the `LlmProvider` interface, never on `OpenAICompatibleProvider` directly (PROMT.md §4).
 - Vitest for all tests, mirroring each package's existing `test` script (`vitest run`).
 - Every package's `tsconfig.json` extends `tsconfig.base.json` and every `package.json` follows the existing shape (`private: true`, `type: module`, `main`/`types` → `./src/index.ts`, `typecheck`/`test` scripts).
 
 ## Decisions worth flagging
 
-- **`AnthropicProvider` uses the official `@anthropic-ai/sdk`, not raw `fetch`** — unlike `OpenAICompatibleProvider`. Anthropic's streaming protocol has several event types (`message_start`, `content_block_delta`, `message_delta`, `message_stop`) versus OpenAI's single delta-chunk shape; hand-rolling that parser would duplicate logic the official SDK already handles. PROMT.md §1 lists "Anthropic API" as a first-class tech-stack item without forbidding its SDK, and §25 only warns against adding a dependency when standard means already solve the problem — here they don't.
-- **`ProviderRegistry` lives in `packages/agent-core`**, alongside `AgentRuntime`/`ContextBuilder`, since PROMT.md §3 groups it with the other core orchestration components. It is constructed and populated with `LlmProvider` instances only — `apps/api`'s new `providerFactory.ts` is the only file that imports both concrete provider classes.
-- **`AgentRuntime.runTurn` gains an optional `providerId` parameter now**, even though `ProviderRouter` (manual/auto mode) is Phase 3. Without this, Phase 3 would have to change `AgentRuntime`'s signature again. Phase 2 adds no `TaskType`/auto-routing logic — a caller either names a provider or gets the configured default.
-- **Config moves from flat `PROVIDER_*` env vars to `config/providers.yaml`**, matching PROMT.md §5's example exactly, plus one key the spec's example doesn't show: a top-level `defaultProvider`. This is needed because Phase 2 has no router to decide which provider handles a request when the caller doesn't name one.
+- **`AnthropicProvider` is explicitly excluded from this phase** — the user wants OpenAI-compatible providers only for now, with the ability to switch between multiple of them (e.g. a fast local model and a coding-focused local model, matching PROMT.md §5's own example of `local-fast`/`local-code`). `ProviderConfigEntry` still carries a `type` field (currently only `"openai-compatible"` is a valid value) so a future `anthropic` type is additive, not a breaking reshape.
+- **`ProviderRegistry` lives in `packages/agent-core`**, alongside `AgentRuntime`/`ContextBuilder`, since PROMT.md §3 groups it with the other core orchestration components. It is constructed and populated with `LlmProvider` instances only — `apps/api`'s new `providerFactory.ts` is the only file that imports the concrete provider class.
+- **`AgentRuntime.runTurn` gains an optional `providerId` parameter now**, even though `ProviderRouter` (manual/auto mode) is Phase 3. Without this, Phase 3 would have to change `AgentRuntime`'s signature again. Phase 2 adds no `TaskType`/auto-routing logic — a caller either names a provider or gets the configured default. This is exactly the "switch between them" capability the user asked for: any caller (the SSE route today, a future UI selector later) can pass `providerId` to pick a specific configured provider per request.
+- **Config moves from flat `PROVIDER_*` env vars to `config/providers.yaml`**, matching PROMT.md §5's example exactly (a `providers:` map keyed by id, each with `type`/`baseUrl`/`apiKey`/`model`), plus one key the spec's snippet doesn't show: a top-level `defaultProvider`. This is needed because Phase 2 has no router to decide which provider handles a request when the caller doesn't name one.
 - **An unknown `providerId` yields a `run.error` event without ever calling `storage.addRun`** — a "run" row represents an attempted provider call, and none happened here. The triggering user message is still persisted, consistent with the existing pattern where a mid-stream provider error also leaves the user message persisted.
 - **`GET /api/providers`'s response shape changes** from a bare array to `{ providers: [...], defaultProviderId }`. Safe because nothing in `apps/web` calls this endpoint yet (confirmed — no model selector exists; that UI is Phase 8 per PROMT.md §24).
-- **No `apps/web` changes in this plan.** The frontend model selector is explicitly Phase 8 (§24); this plan is backend-only.
+- **No `apps/web` changes in this plan.** The frontend model selector is explicitly Phase 8 (§24); this plan is backend-only, but the `providerId` plumbing it adds is exactly what that selector will call.
 
 ---
 
@@ -38,32 +38,24 @@
 agenter/
 ├── config/
 │   └── providers.yaml                     NEW — multi-provider config, env-var interpolated
-├── .env.example                            MODIFIED — drop PROVIDER_*, add ANTHROPIC_API_KEY
+├── .env.example                            MODIFIED — drop PROVIDER_*, document per-provider secrets
 │
 ├── packages/
-│   ├── agent-core/
-│   │   └── src/
-│   │       ├── ProviderRegistry.ts         NEW
-│   │       ├── ProviderRegistry.test.ts    NEW
-│   │       ├── AgentRuntime.ts             MODIFIED — takes ProviderRegistry, optional providerId
-│   │       ├── AgentRuntime.test.ts        MODIFIED
-│   │       └── index.ts                   MODIFIED — export ProviderRegistry
-│   │
-│   └── providers/
-│       └── anthropic/                      NEW package
-│           ├── package.json
-│           ├── tsconfig.json
-│           └── src/
-│               ├── AnthropicProvider.ts
-│               ├── AnthropicProvider.test.ts
-│               └── index.ts
+│   └── agent-core/
+│       └── src/
+│           ├── ProviderRegistry.ts         NEW
+│           ├── ProviderRegistry.test.ts    NEW
+│           ├── AgentRuntime.ts             MODIFIED — takes ProviderRegistry, optional providerId
+│           ├── AgentRuntime.test.ts        MODIFIED
+│           └── index.ts                    MODIFIED — export ProviderRegistry
 │
 └── apps/
     └── api/
         └── src/
-            ├── config.ts                   MODIFIED — YAML + env interpolation
+            ├── config.ts                   MODIFIED — YAML + env interpolation, multiple providers
             ├── config.test.ts              NEW
             ├── providerFactory.ts          NEW
+            ├── providerFactory.test.ts     NEW
             ├── services/ChatService.ts     MODIFIED — sendMessage(chatId, content, providerId?)
             ├── services/ChatService.test.ts MODIFIED
             ├── routes/providers.ts         MODIFIED — registry-backed, new response shape
@@ -234,11 +226,9 @@ git commit -m "feat(agent-core): add ProviderRegistry"
 
 **Interfaces:**
 - Consumes: `ProviderRegistry` (Task 1).
-- Produces: `class AgentRuntime` with constructor `(registry: ProviderRegistry, storage: ChatStorage, systemPrompt?: string)` and `runTurn(chatId: string, userMessage: string, providerId?: string): AsyncGenerator<AgentEvent>`. Task 5 (`apps/api`) constructs one `AgentRuntime` per process with the full registry (not one provider), and `ChatService.sendMessage` forwards an optional `providerId` through to it.
+- Produces: `class AgentRuntime` with constructor `(registry: ProviderRegistry, storage: ChatStorage, systemPrompt?: string)` and `runTurn(chatId: string, userMessage: string, providerId?: string): AsyncGenerator<AgentEvent>`. Task 5 (`apps/api`) constructs one `AgentRuntime` per process with the full registry (not a single provider), and `ChatService.sendMessage` forwards an optional `providerId` through to it.
 
-- [ ] **Step 1: Update the failing test to construct `AgentRuntime` with a registry**
-
-Replace the full contents of `packages/agent-core/src/AgentRuntime.test.ts` with:
+- [ ] **Step 1: Replace the contents of `AgentRuntime.test.ts`**
 
 ```ts
 // packages/agent-core/src/AgentRuntime.test.ts
@@ -416,7 +406,7 @@ cd packages/agent-core
 npx vitest run src/AgentRuntime.test.ts
 ```
 
-Expected: FAIL — `AgentRuntime` constructor still expects `(provider, storage, systemPrompt?)`, so `registryWith(...)` passed as first arg breaks the "uses named provider"/"unknown provider" assertions (TypeScript compile error under `vitest run`, or a runtime error since `this.provider` would be a `ProviderRegistry` without `.chat()`).
+Expected: FAIL — `AgentRuntime`'s constructor still expects `(provider, storage, systemPrompt?)`, so passing a `ProviderRegistry` as the first argument breaks the "named provider"/"unknown provider" assertions.
 
 - [ ] **Step 3: Update `AgentRuntime.ts`**
 
@@ -529,329 +519,7 @@ git commit -m "feat(agent-core): AgentRuntime selects provider from ProviderRegi
 
 ---
 
-## Task 3: providers/anthropic — AnthropicProvider
-
-**Files:**
-- Create: `packages/providers/anthropic/package.json`
-- Create: `packages/providers/anthropic/tsconfig.json`
-- Create: `packages/providers/anthropic/src/AnthropicProvider.ts`
-- Test: `packages/providers/anthropic/src/AnthropicProvider.test.ts`
-- Create: `packages/providers/anthropic/src/index.ts`
-
-**Interfaces:**
-- Consumes: `LlmProvider`, `LlmRequest`, `LlmEvent` (from `@agenter/agent-core`, existing).
-- Produces: `class AnthropicProvider implements LlmProvider` with constructor `(config: { id: string; apiKey: string; model: string; contextWindow?: number })`. Task 6 (`apps/api`'s `providerFactory.ts`) constructs one per `type: anthropic` entry in `config/providers.yaml`.
-
-This provider wraps `@anthropic-ai/sdk`'s `client.messages.stream(...)`, translating its streaming events into the same `LlmEvent` union `OpenAICompatibleProvider` already produces (`text.delta`, `done`, `error`) — `AgentRuntime` and everything downstream cannot tell which concrete provider is in use.
-
-- [ ] **Step 1: Add the dependency**
-
-```bash
-npm install @anthropic-ai/sdk@0.126.0 --workspace=@agenter/provider-anthropic --save-exact
-```
-
-Note: this command is run *after* Step 2 creates the package directory and a minimal `package.json` — npm workspaces requires the workspace to already exist on disk to target it by name. If run before Step 2, create the package.json first (Step 2) then re-run this install.
-
-- [ ] **Step 2: Create `packages/providers/anthropic/package.json`**
-
-```json
-{
-  "name": "@agenter/provider-anthropic",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "@agenter/agent-core": "0.1.0",
-    "@anthropic-ai/sdk": "0.126.0"
-  },
-  "devDependencies": {
-    "typescript": "6.0.3",
-    "vitest": "5.0.0"
-  }
-}
-```
-
-(Run the Step 1 install now if not already done, so `node_modules` actually has the package.)
-
-- [ ] **Step 3: Create `packages/providers/anthropic/tsconfig.json`**
-
-```json
-{
-  "extends": "../../../tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src"
-  },
-  "include": ["src"]
-}
-```
-
-- [ ] **Step 4: Write the failing test**
-
-```ts
-// packages/providers/anthropic/src/AnthropicProvider.test.ts
-import { describe, expect, it, vi } from "vitest";
-import { AnthropicProvider } from "./AnthropicProvider.js";
-
-const streamMock = vi.fn();
-
-vi.mock("@anthropic-ai/sdk", () => {
-  return {
-    default: class MockAnthropic {
-      messages = { stream: streamMock };
-    },
-  };
-});
-
-function fakeStream(events: Array<Record<string, unknown>>) {
-  return {
-    async *[Symbol.asyncIterator]() {
-      for (const event of events) yield event;
-    },
-  };
-}
-
-describe("AnthropicProvider", () => {
-  it("yields text.delta for each content_block_delta and done with usage on message_delta", async () => {
-    streamMock.mockReturnValue(
-      fakeStream([
-        { type: "message_start", message: { usage: { input_tokens: 12 } } },
-        { type: "content_block_delta", delta: { type: "text_delta", text: "Hel" } },
-        { type: "content_block_delta", delta: { type: "text_delta", text: "lo!" } },
-        { type: "message_delta", usage: { output_tokens: 4 } },
-        { type: "message_stop" },
-      ])
-    );
-
-    const provider = new AnthropicProvider({ id: "claude", apiKey: "test-key", model: "claude-test" });
-
-    const events = [];
-    for await (const event of provider.chat({ messages: [{ role: "user", content: "hi" }] })) {
-      events.push(event);
-    }
-
-    expect(events).toEqual([
-      { type: "text.delta", text: "Hel" },
-      { type: "text.delta", text: "lo!" },
-      { type: "done", usage: { promptTokens: 12, completionTokens: 4 } },
-    ]);
-  });
-
-  it("splits a system message out of the messages array before calling the SDK", async () => {
-    streamMock.mockReturnValue(fakeStream([{ type: "message_stop" }]));
-
-    const provider = new AnthropicProvider({ id: "claude", apiKey: "test-key", model: "claude-test" });
-
-    const events = [];
-    for await (const event of provider.chat({
-      messages: [
-        { role: "system", content: "You are helpful." },
-        { role: "user", content: "hi" },
-      ],
-    })) {
-      events.push(event);
-    }
-
-    expect(streamMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        system: "You are helpful.",
-        messages: [{ role: "user", content: "hi" }],
-      })
-    );
-  });
-
-  it("yields an error event when the SDK stream throws", async () => {
-    streamMock.mockImplementation(() => {
-      throw new Error("invalid x-api-key");
-    });
-
-    const provider = new AnthropicProvider({ id: "claude", apiKey: "bad-key", model: "claude-test" });
-
-    const events = [];
-    for await (const event of provider.chat({ messages: [{ role: "user", content: "hi" }] })) {
-      events.push(event);
-    }
-
-    expect(events).toEqual([{ type: "error", message: "invalid x-api-key" }]);
-  });
-
-  it("reports capabilities and context window from config", () => {
-    const provider = new AnthropicProvider({
-      id: "claude",
-      apiKey: "test-key",
-      model: "claude-test",
-      contextWindow: 200000,
-    });
-
-    expect(provider.supportsTools()).toBe(true);
-    expect(provider.supportsVision()).toBe(true);
-    expect(provider.getContextWindow()).toBe(200000);
-  });
-});
-```
-
-- [ ] **Step 5: Run test to verify it fails**
-
-```bash
-cd packages/providers/anthropic
-npx vitest run src/AnthropicProvider.test.ts
-```
-
-Expected: FAIL — `Cannot find module './AnthropicProvider.js'`.
-
-- [ ] **Step 6: Implement `AnthropicProvider.ts`**
-
-```ts
-// packages/providers/anthropic/src/AnthropicProvider.ts
-import Anthropic from "@anthropic-ai/sdk";
-import type { ChatMessage, LlmEvent, LlmProvider, LlmRequest } from "@agenter/agent-core";
-
-export interface AnthropicProviderConfig {
-  id: string;
-  apiKey: string;
-  model: string;
-  contextWindow?: number;
-}
-
-function splitSystemMessage(messages: ChatMessage[]): {
-  system: string | undefined;
-  rest: Array<{ role: "user" | "assistant"; content: string }>;
-} {
-  const systemMessages = messages.filter((m) => m.role === "system");
-  const rest = messages
-    .filter((m): m is ChatMessage & { role: "user" | "assistant" } => m.role !== "system")
-    .map((m) => ({ role: m.role, content: m.content }));
-
-  return {
-    system: systemMessages.length > 0 ? systemMessages.map((m) => m.content).join("\n\n") : undefined,
-    rest,
-  };
-}
-
-export class AnthropicProvider implements LlmProvider {
-  readonly id: string;
-  readonly model: string;
-  private readonly client: Anthropic;
-  private readonly contextWindow: number;
-
-  constructor(config: AnthropicProviderConfig) {
-    this.id = config.id;
-    this.model = config.model;
-    this.client = new Anthropic({ apiKey: config.apiKey });
-    this.contextWindow = config.contextWindow ?? 200000;
-  }
-
-  supportsTools(): boolean {
-    return true;
-  }
-
-  supportsVision(): boolean {
-    return true;
-  }
-
-  getContextWindow(): number {
-    return this.contextWindow;
-  }
-
-  async *chat(request: LlmRequest): AsyncIterable<LlmEvent> {
-    const { system, rest } = splitSystemMessage(request.messages);
-
-    let stream: AsyncIterable<Record<string, unknown>>;
-    try {
-      stream = this.client.messages.stream({
-        model: this.model,
-        max_tokens: 4096,
-        system,
-        messages: rest,
-      }) as unknown as AsyncIterable<Record<string, unknown>>;
-    } catch (error) {
-      yield { type: "error", message: error instanceof Error ? error.message : String(error) };
-      return;
-    }
-
-    let promptTokens: number | undefined;
-    let completionTokens: number | undefined;
-
-    try {
-      for await (const event of stream) {
-        if (event.type === "message_start") {
-          const usage = (event.message as { usage?: { input_tokens?: number } } | undefined)?.usage;
-          promptTokens = usage?.input_tokens;
-          continue;
-        }
-
-        if (event.type === "content_block_delta") {
-          const delta = event.delta as { type?: string; text?: string };
-          if (delta.type === "text_delta" && delta.text) {
-            yield { type: "text.delta", text: delta.text };
-          }
-          continue;
-        }
-
-        if (event.type === "message_delta") {
-          const usage = event.usage as { output_tokens?: number } | undefined;
-          completionTokens = usage?.output_tokens;
-          continue;
-        }
-
-        if (event.type === "message_stop") {
-          yield {
-            type: "done",
-            usage:
-              promptTokens !== undefined && completionTokens !== undefined
-                ? { promptTokens, completionTokens }
-                : undefined,
-          };
-        }
-      }
-    } catch (error) {
-      yield { type: "error", message: error instanceof Error ? error.message : String(error) };
-    }
-  }
-}
-```
-
-- [ ] **Step 7: Run test again, confirm it passes**
-
-```bash
-npx vitest run src/AnthropicProvider.test.ts
-```
-
-Expected: all 4 tests PASS.
-
-- [ ] **Step 8: Create `packages/providers/anthropic/src/index.ts`**
-
-```ts
-export * from "./AnthropicProvider.js";
-```
-
-- [ ] **Step 9: Typecheck, lint, test the whole package**
-
-```bash
-cd ../../..
-npm run typecheck --workspace=@agenter/provider-anthropic
-npm run test --workspace=@agenter/provider-anthropic
-npm run lint
-```
-
-Expected: no errors, all tests pass.
-
-- [ ] **Step 10: Commit**
-
-```bash
-git add packages/providers/anthropic package.json package-lock.json
-git commit -m "feat(provider-anthropic): add streaming Anthropic provider"
-```
-
----
-
-## Task 4: apps/api — YAML provider config with env-var interpolation
+## Task 3: apps/api — YAML provider config with env-var interpolation
 
 **Files:**
 - Create: `config/providers.yaml`
@@ -862,7 +530,7 @@ git commit -m "feat(provider-anthropic): add streaming Anthropic provider"
 
 **Interfaces:**
 - Consumes: nothing new.
-- Produces: `interface ProviderConfigEntry { id: string; type: "openai-compatible" | "anthropic"; baseUrl?: string; apiKey: string; model: string; contextWindow?: number }`, `interface AppConfig { port: number; dbPath: string; providers: ProviderConfigEntry[]; defaultProviderId: string }`, `loadConfig(): AppConfig`, and `interpolateEnv(value: string): string` (exported for the test). Task 6 (`providerFactory.ts`) consumes `AppConfig.providers` and `AppConfig.defaultProviderId`.
+- Produces: `interface ProviderConfigEntry { id: string; type: "openai-compatible"; baseUrl: string; apiKey: string; model: string; contextWindow?: number }`, `interface AppConfig { port: number; dbPath: string; providers: ProviderConfigEntry[]; defaultProviderId: string }`, `loadConfig(): AppConfig`, `loadConfigFromFile(path: string): { providers: ProviderConfigEntry[]; defaultProviderId: string }`, and `interpolateEnv(value: string): string` (all exported, the last two for the test). Task 4 (`providerFactory.ts`) consumes `AppConfig.providers` and `AppConfig.defaultProviderId`.
 
 - [ ] **Step 1: Add the `yaml` dependency**
 
@@ -880,15 +548,16 @@ providers:
     type: openai-compatible
     baseUrl: http://localhost:1234/v1
     apiKey: local
-    model: qwen3-coder-30b
+    model: qwen3.5-9b
 
-  claude:
-    type: anthropic
-    apiKey: ${ANTHROPIC_API_KEY}
-    model: claude-sonnet-4-5
+  local-code:
+    type: openai-compatible
+    baseUrl: http://localhost:1234/v1
+    apiKey: local
+    model: qwen3-coder-30b-a3b
 ```
 
-This mirrors PROMT.md §5's example structure (`providers:` map keyed by id, each with `type`/`baseUrl`/`apiKey`/`model`) plus a top-level `defaultProvider` key that the spec's snippet doesn't show but which Phase 2 needs (no router yet to pick one at request time).
+This mirrors PROMT.md §5's own example exactly (`local-fast` / `local-code`, both `openai-compatible`, sharing a `baseUrl` — the same LM Studio-style server hosting two loaded models) plus a top-level `defaultProvider` key the spec's snippet doesn't show but which Phase 2 needs (no router yet to pick one at request time). Adjust `baseUrl`/`model` values to match whatever's actually running locally when following this plan.
 
 - [ ] **Step 3: Update `.env.example`**
 
@@ -897,9 +566,9 @@ Replace the `PROVIDER_*` block:
 ```text
 PORT=3000
 DB_PATH=./data/agenter.db
-
-ANTHROPIC_API_KEY=sk-ant-your-key-here
 ```
+
+(No secrets needed for local OpenAI-compatible servers using a placeholder key like `local`. If a configured provider ever needs a real key, add it here as `SOME_PROVIDER_API_KEY=` and reference it from `config/providers.yaml` as `apiKey: ${SOME_PROVIDER_API_KEY}`.)
 
 - [ ] **Step 4: Write the failing test for env interpolation and YAML loading**
 
@@ -933,11 +602,9 @@ describe("loadConfigFromFile", () => {
 
   afterEach(() => {
     unlinkSync(filePath);
-    delete process.env.TEST_CLAUDE_KEY;
   });
 
   it("parses providers.yaml, resolves ${VAR} placeholders, and reports the default provider", () => {
-    process.env.TEST_CLAUDE_KEY = "sk-resolved";
     writeFileSync(
       filePath,
       [
@@ -948,10 +615,11 @@ describe("loadConfigFromFile", () => {
         "    baseUrl: http://localhost:1234/v1",
         "    apiKey: local",
         "    model: qwen3",
-        "  claude:",
-        "    type: anthropic",
-        "    apiKey: ${TEST_CLAUDE_KEY}",
-        "    model: claude-test",
+        "  local-code:",
+        "    type: openai-compatible",
+        "    baseUrl: http://localhost:1234/v1",
+        "    apiKey: local",
+        "    model: qwen3-coder-30b",
         "",
       ].join("\n")
     );
@@ -969,14 +637,36 @@ describe("loadConfigFromFile", () => {
         contextWindow: undefined,
       },
       {
-        id: "claude",
-        type: "anthropic",
-        baseUrl: undefined,
-        apiKey: "sk-resolved",
-        model: "claude-test",
+        id: "local-code",
+        type: "openai-compatible",
+        baseUrl: "http://localhost:1234/v1",
+        apiKey: "local",
+        model: "qwen3-coder-30b",
         contextWindow: undefined,
       },
     ]);
+  });
+
+  it("resolves an apiKey given as ${VAR} from the environment", () => {
+    process.env.TEST_PROVIDER_KEY = "sk-resolved";
+    writeFileSync(
+      filePath,
+      [
+        "defaultProvider: remote",
+        "providers:",
+        "  remote:",
+        "    type: openai-compatible",
+        "    baseUrl: https://api.example.com/v1",
+        "    apiKey: ${TEST_PROVIDER_KEY}",
+        "    model: some-model",
+        "",
+      ].join("\n")
+    );
+
+    const config = loadConfigFromFile(filePath);
+
+    expect(config.providers[0]?.apiKey).toBe("sk-resolved");
+    delete process.env.TEST_PROVIDER_KEY;
   });
 });
 ```
@@ -1005,8 +695,8 @@ loadEnv({ path: path.resolve(__dirname, "../../../.env") });
 
 export interface ProviderConfigEntry {
   id: string;
-  type: "openai-compatible" | "anthropic";
-  baseUrl?: string;
+  type: "openai-compatible";
+  baseUrl: string;
   apiKey: string;
   model: string;
   contextWindow?: number;
@@ -1037,7 +727,7 @@ interface RawProvidersYaml {
   defaultProvider: string;
   providers: Record<
     string,
-    { type: "openai-compatible" | "anthropic"; baseUrl?: string; apiKey: string; model: string; contextWindow?: number }
+    { type: "openai-compatible"; baseUrl: string; apiKey: string; model: string; contextWindow?: number }
   >;
 }
 
@@ -1078,7 +768,7 @@ export function loadConfig(): AppConfig {
 npx vitest run src/config.test.ts
 ```
 
-Expected: all 4 tests PASS.
+Expected: all 5 tests PASS.
 
 - [ ] **Step 8: Typecheck and lint**
 
@@ -1089,7 +779,7 @@ npm run typecheck --workspace=@agenter/api
 npm run lint
 ```
 
-Expected: no errors. (`loadConfig()` itself isn't called by any test yet — it's exercised in Task 6's bootstrap.)
+Expected: no errors. (`loadConfig()` itself isn't called by any test yet — it's exercised in Task 5's bootstrap.)
 
 - [ ] **Step 9: Commit**
 
@@ -1100,388 +790,270 @@ git commit -m "feat(api): load provider config from YAML with env-var interpolat
 
 ---
 
-## Task 5: apps/api — providerFactory builds a ProviderRegistry from config
+## Task 4: apps/api — providerFactory builds a ProviderRegistry from config
 
 **Files:**
 - Create: `apps/api/src/providerFactory.ts`
-- Test: `apps/api/src/providerFactory.test.ts`
-- Modify: `apps/api/package.json` (add `@agenter/provider-anthropic` dependency)
+- Test: `apps/api/src/providerFactory.test.ts` (new)
 
 **Interfaces:**
-- Consumes: `ProviderConfigEntry`, `AppConfig` (Task 4); `ProviderRegistry` (`@agenter/agent-core`, Task 1); `OpenAICompatibleProvider` (`@agenter/provider-openai-compatible`, existing); `AnthropicProvider` (`@agenter/provider-anthropic`, Task 3).
-- Produces: `function buildProviderRegistry(config: AppConfig): ProviderRegistry`. Task 6 (`apps/api/src/index.ts`) calls this once at startup.
+- Consumes: `ProviderRegistry` from `@agenter/agent-core` (Task 1), `OpenAICompatibleProvider` from `@agenter/provider-openai-compatible`, `ProviderConfigEntry`/`AppConfig` from `./config.js` (Task 3).
+- Produces: `function buildProviderRegistry(config: Pick<AppConfig, "providers" | "defaultProviderId">): ProviderRegistry` (consumed by Task 5's `index.ts` bootstrap).
 
-This is the **only** file in the whole repo that imports both concrete provider classes — everything else (including `AgentRuntime`) sees only `LlmProvider`/`ProviderRegistry`.
+This is the one file in `apps/api` allowed to import the concrete `OpenAICompatibleProvider` class — everything downstream (`ChatService`, `AgentRuntime`) only sees `ProviderRegistry`/`LlmProvider`.
 
-- [ ] **Step 1: Add the `@agenter/provider-anthropic` dependency to `apps/api`**
-
-```bash
-npm install @agenter/provider-anthropic@0.1.0 --workspace=@agenter/api --save-exact
-```
-
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 1: Write the failing test**
 
 ```ts
 // apps/api/src/providerFactory.test.ts
 import { describe, expect, it } from "vitest";
 import { buildProviderRegistry } from "./providerFactory.js";
-import type { AppConfig } from "./config.js";
+import type { ProviderConfigEntry } from "./config.js";
+
+const providers: ProviderConfigEntry[] = [
+  {
+    id: "local-fast",
+    type: "openai-compatible",
+    baseUrl: "http://localhost:1234/v1",
+    apiKey: "local",
+    model: "qwen3.5-9b",
+  },
+  {
+    id: "local-code",
+    type: "openai-compatible",
+    baseUrl: "http://localhost:1234/v1",
+    apiKey: "local",
+    model: "qwen3-coder-30b-a3b",
+  },
+];
 
 describe("buildProviderRegistry", () => {
-  it("registers an OpenAICompatibleProvider for a openai-compatible entry and an AnthropicProvider for an anthropic entry", () => {
-    const config: AppConfig = {
-      port: 3000,
-      dbPath: ":memory:",
-      defaultProviderId: "local-fast",
-      providers: [
-        {
-          id: "local-fast",
-          type: "openai-compatible",
-          baseUrl: "http://localhost:1234/v1",
-          apiKey: "local",
-          model: "qwen3",
-        },
-        {
-          id: "claude",
-          type: "anthropic",
-          apiKey: "sk-test",
-          model: "claude-test",
-        },
-      ],
-    };
+  it("registers one provider per config entry, keyed by id", () => {
+    const registry = buildProviderRegistry({ providers, defaultProviderId: "local-fast" });
 
-    const registry = buildProviderRegistry(config);
-
-    expect(registry.get("local-fast")?.model).toBe("qwen3");
-    expect(registry.get("claude")?.model).toBe("claude-test");
-    expect(registry.getDefaultId()).toBe("local-fast");
-    expect(registry.list()).toHaveLength(2);
+    expect(registry.list().map((p) => p.id)).toEqual(["local-fast", "local-code"]);
   });
 
-  it("throws for an unknown provider type", () => {
-    const config: AppConfig = {
-      port: 3000,
-      dbPath: ":memory:",
-      defaultProviderId: "bad",
-      providers: [{ id: "bad", type: "unsupported" as never, apiKey: "x", model: "x" }],
-    };
+  it("sets the model on each provider from its config entry", () => {
+    const registry = buildProviderRegistry({ providers, defaultProviderId: "local-fast" });
 
-    expect(() => buildProviderRegistry(config)).toThrow('Unknown provider type: "unsupported"');
+    expect(registry.get("local-code")?.model).toBe("qwen3-coder-30b-a3b");
+  });
+
+  it("wires the configured defaultProviderId into the registry's default", () => {
+    const registry = buildProviderRegistry({ providers, defaultProviderId: "local-code" });
+
+    expect(registry.getDefault().id).toBe("local-code");
+  });
+
+  it("throws if defaultProviderId doesn't match any configured provider", () => {
+    expect(() =>
+      buildProviderRegistry({ providers, defaultProviderId: "missing" })
+    ).toThrow('Default provider "missing" is not registered');
   });
 });
-```
-
-- [ ] **Step 3: Run test to verify it fails**
-
-```bash
-cd apps/api
-npx vitest run src/providerFactory.test.ts
-```
-
-Expected: FAIL — `Cannot find module './providerFactory.js'`.
-
-- [ ] **Step 4: Implement `providerFactory.ts`**
-
-```ts
-// apps/api/src/providerFactory.ts
-import { ProviderRegistry } from "@agenter/agent-core";
-import { OpenAICompatibleProvider } from "@agenter/provider-openai-compatible";
-import { AnthropicProvider } from "@agenter/provider-anthropic";
-import type { AppConfig, ProviderConfigEntry } from "./config.js";
-
-function buildProvider(entry: ProviderConfigEntry) {
-  if (entry.type === "openai-compatible") {
-    if (!entry.baseUrl) {
-      throw new Error(`Provider "${entry.id}" is type openai-compatible but has no baseUrl`);
-    }
-    return new OpenAICompatibleProvider({
-      id: entry.id,
-      baseUrl: entry.baseUrl,
-      apiKey: entry.apiKey,
-      model: entry.model,
-      contextWindow: entry.contextWindow,
-    });
-  }
-
-  if (entry.type === "anthropic") {
-    return new AnthropicProvider({
-      id: entry.id,
-      apiKey: entry.apiKey,
-      model: entry.model,
-      contextWindow: entry.contextWindow,
-    });
-  }
-
-  throw new Error(`Unknown provider type: "${entry.type}"`);
-}
-
-export function buildProviderRegistry(config: AppConfig): ProviderRegistry {
-  const registry = new ProviderRegistry(config.defaultProviderId);
-  for (const entry of config.providers) {
-    registry.register(buildProvider(entry));
-  }
-  return registry;
-}
-```
-
-- [ ] **Step 5: Run test again, confirm it passes**
-
-```bash
-npx vitest run src/providerFactory.test.ts
-```
-
-Expected: both tests PASS.
-
-- [ ] **Step 6: Typecheck, lint, test**
-
-```bash
-cd ../..
-npm install
-npm run typecheck --workspace=@agenter/api
-npm run test --workspace=@agenter/api
-npm run lint
-```
-
-Expected: no errors, all tests pass.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add apps/api/src/providerFactory.ts apps/api/src/providerFactory.test.ts apps/api/package.json package-lock.json
-git commit -m "feat(api): add providerFactory to build ProviderRegistry from config"
-```
-
----
-
-## Task 6: apps/api — wire ProviderRegistry through ChatService, routes, and bootstrap
-
-**Files:**
-- Modify: `apps/api/src/services/ChatService.ts`
-- Modify: `apps/api/src/services/ChatService.test.ts`
-- Modify: `apps/api/src/routes/providers.ts`
-- Modify: `apps/api/src/routes/messages.ts`
-- Modify: `apps/api/src/index.ts`
-
-**Interfaces:**
-- Consumes: `AgentRuntime` (now registry-based, Task 2), `ProviderRegistry` (Task 1), `buildProviderRegistry` (Task 5), `loadConfig` (Task 4).
-- Produces: `ChatService.sendMessage(chatId: string, content: string, providerId?: string): AsyncGenerator<AgentEvent>`; `GET /api/providers` returning `{ providers: Array<{ id: string; model: string }>, defaultProviderId: string }`; `POST /api/chats/:id/messages` accepting an optional `providerId` field in its JSON body. No later task in this plan depends on further changes here — this is the last task.
-
-- [ ] **Step 1: Update the failing test for `ChatService.sendMessage`**
-
-Add this test case to the existing `describe("ChatService", ...)` block in `apps/api/src/services/ChatService.test.ts` (keep the other four `it(...)` blocks unchanged):
-
-```ts
-  it("forwards an optional providerId through to AgentRuntime.runTurn", async () => {
-    const events: AgentEvent[] = [{ type: "run.started", provider: "claude", model: "claude-test" }];
-    const storage = fakeStorage();
-    const runtime = fakeRuntime(events);
-    const service = new ChatService(storage, runtime as never);
-
-    const received: AgentEvent[] = [];
-    for await (const event of service.sendMessage("c1", "hello", "claude")) {
-      received.push(event);
-    }
-
-    expect(received).toEqual(events);
-    expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello", "claude");
-  });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
 cd apps/api
-npx vitest run src/services/ChatService.test.ts
+npx vitest run src/providerFactory.test.ts
 ```
 
-Expected: FAIL — `ChatService.sendMessage` doesn't accept a third argument yet, so `runtime.runTurn` is called with only `("c1", "hello")`, and the `toHaveBeenCalledWith` assertion including `"claude"` fails.
+Expected: FAIL — `./providerFactory.js` doesn't exist yet.
 
-- [ ] **Step 3: Update `ChatService.ts`**
+- [ ] **Step 3: Implement `providerFactory.ts`**
 
 ```ts
-// apps/api/src/services/ChatService.ts
-import type { AgentEvent, AgentRuntime, Chat, ChatStorage, StoredMessage } from "@agenter/agent-core";
+// apps/api/src/providerFactory.ts
+import { ProviderRegistry } from "@agenter/agent-core";
+import { OpenAICompatibleProvider } from "@agenter/provider-openai-compatible";
+import type { ProviderConfigEntry } from "./config.js";
 
-export interface ChatWithMessages {
-  chat: Chat;
-  messages: StoredMessage[];
-}
+export function buildProviderRegistry(config: {
+  providers: ProviderConfigEntry[];
+  defaultProviderId: string;
+}): ProviderRegistry {
+  const registry = new ProviderRegistry(config.defaultProviderId);
 
-export class ChatService {
-  constructor(
-    private readonly storage: ChatStorage,
-    private readonly runtime: AgentRuntime
-  ) {}
-
-  listChats(): Chat[] {
-    return this.storage.listChats();
+  for (const entry of config.providers) {
+    const provider = new OpenAICompatibleProvider({
+      id: entry.id,
+      baseUrl: entry.baseUrl,
+      apiKey: entry.apiKey,
+      model: entry.model,
+      contextWindow: entry.contextWindow,
+    });
+    registry.register(provider);
   }
 
-  createChat(title = "New chat"): Chat {
-    return this.storage.createChat(title);
-  }
+  registry.getDefault();
 
-  getChatWithMessages(id: string): ChatWithMessages | undefined {
-    const chat = this.storage.getChat(id);
-    if (!chat) return undefined;
-
-    return { chat, messages: this.storage.listMessages(id) };
-  }
-
-  deleteChat(id: string): void {
-    this.storage.deleteChat(id);
-  }
-
-  async *sendMessage(chatId: string, content: string, providerId?: string): AsyncGenerator<AgentEvent> {
-    yield* this.runtime.runTurn(chatId, content, providerId);
-  }
+  return registry;
 }
 ```
+
+`ProviderRegistry`'s constructor (Task 1) takes `defaultProviderId` up front; `getDefault()` throws `Default provider "<id>" is not registered` if no registered provider matches it. Calling it once here — after all entries are registered — turns a misconfigured `defaultProvider` in `providers.yaml` into an immediate startup failure instead of a silent one that only surfaces on the first request.
 
 - [ ] **Step 4: Run test again, confirm it passes**
 
 ```bash
-npx vitest run src/services/ChatService.test.ts
+npx vitest run src/providerFactory.test.ts
 ```
 
-Expected: all 6 tests PASS.
+Expected: all 4 tests PASS.
 
-- [ ] **Step 5: Update `routes/providers.ts`**
+- [ ] **Step 5: Typecheck, lint, full workspace test**
+
+```bash
+cd ../..
+npm run typecheck --workspace=@agenter/api
+npm run lint
+npm test
+```
+
+Expected: no errors, all tests across the workspace PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add apps/api/src/providerFactory.ts apps/api/src/providerFactory.test.ts
+git commit -m "feat(api): build ProviderRegistry from config"
+```
+
+---
+
+## Task 5: apps/api — wire ChatService, routes, and bootstrap to the registry
+
+**Files:**
+- Modify: `apps/api/src/services/ChatService.ts`
+- Modify: `apps/api/src/routes/messages.ts`
+- Modify: `apps/api/src/routes/providers.ts`
+- Modify: `apps/api/src/index.ts`
+
+**Interfaces:**
+- Consumes: `AgentRuntime` with the new `(registry, storage, systemPrompt?)` constructor and `runTurn(chatId, userMessage, providerId?)` signature (Task 2), `buildProviderRegistry` (Task 4), `loadConfig` (Task 3).
+- Produces: `ChatService.sendMessage(chatId: string, content: string, providerId?: string): AsyncGenerator<AgentEvent>` (consumed by `routes/messages.ts`); `GET /api/providers` responds `{ providers: { id: string; model: string }[]; defaultProviderId: string }`.
+
+- [ ] **Step 1: Update `ChatService.sendMessage` to accept and forward `providerId`**
+
+In `apps/api/src/services/ChatService.ts`, change:
 
 ```ts
-// apps/api/src/routes/providers.ts
-import { Router } from "express";
-import type { ProviderRegistry } from "@agenter/agent-core";
-
-export function createProvidersRouter(registry: ProviderRegistry): Router {
-  const router = Router();
-
-  router.get("/", (_req, res) => {
-    res.json({
-      providers: registry.list().map((provider) => ({ id: provider.id, model: provider.model })),
-      defaultProviderId: registry.getDefaultId(),
-    });
-  });
-
-  return router;
+sendMessage(chatId: string, content: string) {
+  return this.runtime.runTurn(chatId, content);
 }
 ```
 
-- [ ] **Step 6: Update `routes/messages.ts` to read an optional `providerId` from the request body**
+to:
 
 ```ts
-// apps/api/src/routes/messages.ts
-import { Router } from "express";
-import type { ChatService } from "../services/ChatService.js";
-
-export function createMessagesRouter(chatService: ChatService): Router {
-  const router = Router();
-
-  router.post("/:id/messages", async (req, res) => {
-    const content = req.body?.content;
-    if (typeof content !== "string" || content.trim().length === 0) {
-      res.status(400).json({ error: "content must be a non-empty string" });
-      return;
-    }
-
-    const providerId = typeof req.body?.providerId === "string" ? req.body.providerId : undefined;
-
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders();
-
-    try {
-      for await (const event of chatService.sendMessage(req.params.id, content, providerId)) {
-        res.write(`data: ${JSON.stringify(event)}\n\n`);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      res.write(`data: ${JSON.stringify({ type: "run.error", message })}\n\n`);
-    } finally {
-      res.end();
-    }
-  });
-
-  return router;
+sendMessage(chatId: string, content: string, providerId?: string) {
+  return this.runtime.runTurn(chatId, content, providerId);
 }
 ```
 
-- [ ] **Step 7: Update `apps/api/src/index.ts` to build the registry via `providerFactory`**
+(Match whatever the surrounding method looks like exactly — this is a one-line signature/call change, no other logic in `ChatService` needs to move.)
+
+- [ ] **Step 2: Update `routes/messages.ts` to read `providerId` from the request body**
+
+Find where the current handler destructures the POST body (e.g. `const { content } = req.body;`) and change it to also read `providerId`:
 
 ```ts
-// apps/api/src/index.ts
-import express from "express";
-import { AgentRuntime } from "@agenter/agent-core";
-import { SqliteChatStorage } from "@agenter/storage";
-import { loadConfig } from "./config.js";
-import { buildProviderRegistry } from "./providerFactory.js";
-import { ChatService } from "./services/ChatService.js";
-import { createChatsRouter } from "./routes/chats.js";
-import { createProvidersRouter } from "./routes/providers.js";
-import { createMessagesRouter } from "./routes/messages.js";
+const { content, providerId } = req.body as { content?: string; providerId?: string };
+```
 
-const config = loadConfig();
+Then pass it through to `chatService.sendMessage(chatId, content, providerId)`. Leave existing validation (missing/empty `content`) untouched; `providerId` is optional and falls through to `AgentRuntime`'s default-provider path when omitted.
 
-const storage = new SqliteChatStorage(config.dbPath);
-const registry = buildProviderRegistry(config);
-const runtime = new AgentRuntime(registry, storage);
-const chatService = new ChatService(storage, runtime);
+- [ ] **Step 3: Update `routes/providers.ts` to report all registered providers plus the default**
 
-const app = express();
-app.use(express.json());
+Replace its current body with a handler that reads from the `ProviderRegistry` (passed in via whatever DI the route module already uses to reach `AgentRuntime`/services — follow the existing pattern in this file for how it gets access to shared state, e.g. a factory function taking dependencies):
 
-app.use("/api/chats", createChatsRouter(chatService));
-app.use("/api/chats", createMessagesRouter(chatService));
-app.use("/api/providers", createProvidersRouter(registry));
-
-app.listen(config.port, () => {
-  console.log(`agenter api listening on http://localhost:${config.port}`);
+```ts
+router.get("/providers", (_req, res) => {
+  res.json({
+    providers: registry.list().map((p) => ({ id: p.id, model: p.model })),
+    defaultProviderId: registry.getDefaultId(),
+  });
 });
 ```
 
-- [ ] **Step 8: Typecheck, lint, test the whole workspace**
+- [ ] **Step 4: Update `apps/api/src/index.ts` bootstrap**
+
+Replace the current single-provider construction:
+
+```ts
+const provider = new OpenAICompatibleProvider(/* ... */);
+const runtime = new AgentRuntime(provider, storage);
+```
+
+with:
+
+```ts
+const config = loadConfig();
+const registry = buildProviderRegistry(config);
+const runtime = new AgentRuntime(registry, storage);
+```
+
+and thread `registry` through to wherever `routes/providers.ts` is mounted (following the existing route-wiring pattern in this file — e.g. if routes are built via a factory function like `createProvidersRouter(registry)`, update that call site).
+
+- [ ] **Step 5: Manual verification**
+
+Start the API against `config/providers.yaml`'s two entries (adjust `baseUrl`/model to whatever's actually running locally):
+
+```bash
+npm run dev --workspace=@agenter/api
+```
+
+In another terminal, confirm both providers are listed:
+
+```bash
+curl http://localhost:3000/api/providers
+```
+
+Expected: `{"providers":[{"id":"local-fast","model":"..."},{"id":"local-code","model":"..."}],"defaultProviderId":"local-fast"}`.
+
+Create a chat, then send one message with no `providerId` (uses the default) and one with an explicit `providerId` targeting the other entry:
+
+```bash
+CHAT_ID=$(curl -s -X POST http://localhost:3000/api/chats -H 'Content-Type: application/json' -d '{"title":"test"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')
+
+curl -N -X POST "http://localhost:3000/api/chats/$CHAT_ID/messages" \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"hi"}'
+
+curl -N -X POST "http://localhost:3000/api/chats/$CHAT_ID/messages" \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"hi again","providerId":"local-code"}'
+```
+
+Expected: both requests stream `run.started` (check the `provider`/`model` fields differ between the two responses) followed by `text.delta` events and a `run.completed`. Stop the dev server (`Ctrl+C`) once confirmed.
+
+- [ ] **Step 6: Typecheck, lint, full workspace test**
 
 ```bash
 npm run typecheck
-npm run test
 npm run lint
+npm test
 ```
 
-Expected: no errors, all tests pass across every workspace.
+Expected: no errors, all tests PASS.
 
-- [ ] **Step 9: Manually verify the server boots with two configured providers**
-
-Create `.env` from `.env.example` (set a real or dummy `ANTHROPIC_API_KEY` — a dummy key is fine if you only exercise the `local-fast` path). Then:
+- [ ] **Step 7: Commit**
 
 ```bash
-cd apps/api
-node --experimental-strip-types --env-file=../../.env src/index.ts
-```
-
-In a second terminal:
-
-```bash
-curl -s http://localhost:3000/api/providers
-```
-
-Expected: `{"providers":[{"id":"local-fast","model":"qwen3-coder-30b"},{"id":"claude","model":"claude-sonnet-4-5"}],"defaultProviderId":"local-fast"}`.
-
-If an OpenAI-compatible server is reachable at the configured `baseUrl`, also repeat Phase 1's chat-creation + message-sending curl sequence (create a chat, `POST` a message with no `providerId` in the body, confirm it streams from `local-fast`; then `POST` another message with `{"content":"...", "providerId":"claude"}` and confirm the `run.started` event reports `"provider":"claude"` — this second call will fail with an upstream auth error if `ANTHROPIC_API_KEY` is a dummy value, which is expected and fine; the point is confirming routing picked the right provider, not a live Anthropic response). If no such server is reachable, skip the live check and say so explicitly rather than claiming it was verified.
-
-Stop the server (Ctrl+C) when done.
-
-- [ ] **Step 10: Commit**
-
-```bash
-git add apps/api
+git add apps/api/src/services/ChatService.ts apps/api/src/routes/messages.ts apps/api/src/routes/providers.ts apps/api/src/index.ts
 git commit -m "feat(api): wire ProviderRegistry through ChatService, routes, and bootstrap"
 ```
 
 ---
 
-## Self-review notes
+## Self-review
 
-- **Spec coverage:** §4 (provider interface + `AnthropicProvider`) — Task 3. §5 (`ProviderRegistry`, YAML config outside source, env var interpolation, no secrets in git) — Tasks 1, 4, 5. §6 (`ProviderRouter`, manual/auto, `TaskType`) — explicitly deferred to Phase 3; Task 2's optional `providerId` param is the seam it will plug into. Everything else in PROMT.md (Skills, MCP, ToolRegistry, tool loop, frontend selectors) is out of scope for Phase 2 per the phase-by-phase plan structure agreed with the user.
-- **Placeholder scan:** no TBD/TODO; every step has runnable code and concrete expected output.
-- **Type consistency:** `ProviderConfigEntry`/`AppConfig` (Task 4) match the fields `providerFactory.ts` (Task 5) and its test destructure; `ProviderRegistry`'s method names (`register`, `get`, `list`, `getDefaultId`, `getDefault`) are used identically in `AgentRuntime.ts` (Task 2), `providerFactory.ts` (Task 5), and `routes/providers.ts` (Task 6). `AgentRuntime.runTurn`'s third parameter is named `providerId` everywhere it's threaded through (`ChatService.sendMessage`, `routes/messages.ts` body field, `AgentRuntime.test.ts`).
+**Spec coverage:** PROMT.md §4 (provider abstraction) is covered by Task 1/2 (`LlmProvider`/`ProviderRegistry` already existed/added) and Task 4 (`OpenAICompatibleProvider` construction, unchanged implementation). §5 (YAML provider config with `${VAR}` interpolation, `defaultProvider` key) is covered by Task 3, using the spec's own two-openai-compatible-provider example verbatim. The ability to address a specific provider per request — the user's explicit ask — is covered end-to-end: `ProviderRegistry` (Task 1) → `AgentRuntime.runTurn(chatId, userMessage, providerId?)` (Task 2) → `ChatService.sendMessage(chatId, content, providerId?)` → `POST /messages` body (Task 5). `AnthropicProvider` (part of §4's own text) is intentionally excluded per the user's explicit correction; the `type: "openai-compatible"` discriminator is kept in `ProviderConfigEntry` so a later phase can add an `"anthropic"` variant without reshaping this config. §6 (`ProviderRouter` — automatic provider selection by policy/cost/rules) and §14 (frontend model selector UI) are explicitly out of scope for this plan and deferred to later phases, as stated in the Architecture section.
+
+**Placeholder scan:** no "TBD"/"TODO"/"add appropriate handling" language found.
+
+**Type consistency:** `ProviderConfigEntry` (Task 3) → consumed identically in Task 4's test fixtures and `buildProviderRegistry` signature. `AppConfig.providers`/`AppConfig.defaultProviderId` (Task 3) match the `Pick<AppConfig, "providers" | "defaultProviderId">` parameter type in Task 4. `AgentRuntime`'s constructor `(registry: ProviderRegistry, storage: ChatStorage, systemPrompt?)` (Task 2) matches its use in Task 5 Step 4. `ChatService.sendMessage(chatId, content, providerId?)` (Task 5 Step 1) matches the call in Task 5 Step 2 and the manual-verification body shape in Step 5.
+
