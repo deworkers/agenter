@@ -1,0 +1,20 @@
+defaultProvider: local
+
+providers:
+  api-smart:
+      type: openai-compatible
+      baseUrl: https://tooken.club/v1
+      apiKey: ${TOOKEN_CLUB_API_KEY}
+      model: gpt-5.6-sol
+
+  api-fast:
+    type: openai-compatible
+    baseUrl: https://tooken.club/v1
+    apiKey: ${TOOKEN_CLUB_API_KEY}
+    model: gpt-5.6-luna
+
+  local:
+    type: openai-compatible
+    baseUrl: http://localhost:8080/v1
+    apiKey: local
+    model: E:\models\Jackrong\Qwopus3.6-35B-A3B-Coder-MTP-Q3_K_M\Qwopus3.6-35B-A3B-Coder-MTP-Q3_K_M.gguf

@@ -11,16 +11,17 @@
   },
   "dependencies": {
     "@agenter/agent-core": "0.1.0",
-    "@agenter/storage": "0.1.0",
     "@agenter/provider-openai-compatible": "0.1.0",
+    "@agenter/storage": "0.1.0",
     "dotenv": "17.4.2",
-    "express": "5.2.1"
+    "express": "5.2.1",
+    "yaml": "2.9.1"
   },
   "devDependencies": {
-    "typescript": "6.0.3",
-    "vitest": "5.0.0",
-    "tsx": "4.23.13",
     "@types/express": "5.0.6",
-    "@types/node": "26.5.1"
+    "@types/node": "26.5.1",
+    "tsx": "4.23.13",
+    "typescript": "6.0.3",
+    "vitest": "5.0.0"
   }
 }
