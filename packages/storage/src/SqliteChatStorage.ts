@@ -62,9 +62,7 @@ export class SqliteChatStorage implements ChatStorage {
   }
 
   touchChat(id: string): void {
-    this.db
-      .prepare(`UPDATE chats SET updated_at = ? WHERE id = ?`)
-      .run(new Date().toISOString(), id);
+    this.db.prepare(`UPDATE chats SET updated_at = ? WHERE id = ?`).run(new Date().toISOString(), id);
   }
 
   listMessages(chatId: string): StoredMessage[] {

@@ -4,3 +4,6 @@ dist/
 .env
 .worktrees/
 sdd/
+*.tsbuildinfo
+apps/web/src/**/*.js
+apps/web/src/**/*.d.ts
