@@ -94,6 +94,6 @@ describe("ChatService", () => {
     }
 
     expect(received).toEqual(events);
-    expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello");
+    expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello", undefined);
   });
 });

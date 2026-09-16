@@ -31,7 +31,7 @@ export class ChatService {
     this.storage.deleteChat(id);
   }
 
-  async *sendMessage(chatId: string, content: string): AsyncGenerator<AgentEvent> {
-    yield* this.runtime.runTurn(chatId, content);
+  async *sendMessage(chatId: string, content: string, providerId?: string): AsyncGenerator<AgentEvent> {
+    yield* this.runtime.runTurn(chatId, content, providerId);
   }
 }

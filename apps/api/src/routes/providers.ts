@@ -1,12 +1,15 @@
 // apps/api/src/routes/providers.ts
 import { Router } from "express";
-import type { LlmProvider } from "@agenter/agent-core";
+import type { ProviderRegistry } from "@agenter/agent-core";
 
-export function createProvidersRouter(provider: LlmProvider): Router {
+export function createProvidersRouter(registry: ProviderRegistry): Router {
   const router = Router();
 
   router.get("/", (_req, res) => {
-    res.json([{ id: provider.id, model: provider.model }]);
+    res.json({
+      providers: registry.list().map((p) => ({ id: p.id, model: p.model })),
+      defaultProviderId: registry.getDefaultId(),
+    });
   });
 
   return router;

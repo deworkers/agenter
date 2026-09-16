@@ -12,13 +12,15 @@ export function createMessagesRouter(chatService: ChatService): Router {
       return;
     }
 
+    const providerId = typeof req.body?.providerId === "string" ? req.body.providerId : undefined;
+
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders();
 
     try {
-      for await (const event of chatService.sendMessage(req.params.id, content)) {
+      for await (const event of chatService.sendMessage(req.params.id, content, providerId)) {
         res.write(`data: ${JSON.stringify(event)}\n\n`);
       }
     } catch (error) {
