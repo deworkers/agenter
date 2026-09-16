@@ -1,4 +1,11 @@
 // apps/api/src/config.ts
+import { config as loadEnv } from "dotenv";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+loadEnv({ path: path.resolve(__dirname, "../../../.env") });
+
 export interface AppConfig {
   port: number;
   dbPath: string;

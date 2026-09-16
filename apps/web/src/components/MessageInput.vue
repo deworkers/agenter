@@ -31,18 +31,33 @@ function onKeydown(event: KeyboardEvent): void {
     class="message-input"
     @submit.prevent="submit"
   >
-    <textarea
-      v-model="draft"
-      :disabled="props.disabled"
-      placeholder="Message..."
-      rows="2"
-      @keydown="onKeydown"
-    />
-    <button
-      type="submit"
-      :disabled="props.disabled || draft.trim().length === 0"
-    >
-      Send
-    </button>
+    <div class="message-input-inner">
+      <textarea
+        v-model="draft"
+        :disabled="props.disabled"
+        placeholder="Message..."
+        rows="1"
+        @keydown="onKeydown"
+      />
+      <button
+        type="submit"
+        aria-label="Send message"
+        :disabled="props.disabled || draft.trim().length === 0"
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M12 19V5" />
+          <path d="M5 12l7-7 7 7" />
+        </svg>
+      </button>
+    </div>
   </form>
 </template>

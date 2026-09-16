@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import DOMPurify from "dompurify";
+import { marked } from "marked";
 import type { StoredMessage } from "../api/types.js";
 import MessageInput from "./MessageInput.vue";
 
@@ -11,6 +13,11 @@ defineProps<{
 const emit = defineEmits<{
   send: [content: string];
 }>();
+
+function renderMarkdown(content: string): string {
+  const html = marked.parse(content, { async: false, breaks: true });
+  return DOMPurify.sanitize(html);
+}
 </script>
 
 <template>
@@ -27,31 +34,45 @@ const emit = defineEmits<{
         <div
           v-for="message in messages"
           :key="message.id"
-          class="message"
+          class="message-row"
           :class="message.role"
         >
-          <div class="message-role">
-            {{ message.role }}
-          </div>
-          <div class="message-content">
-            {{ message.content }}
+          <div class="message-avatar">
+            {{ message.role === 'user' ? 'U' : 'AI' }}
           </div>
           <div
-            v-if="message.role === 'assistant' && message.model"
-            class="message-meta"
+            class="message"
+            :class="message.role"
           >
-            {{ message.model }}
+            <div class="message-role">
+              {{ message.role }}
+            </div>
+            <div
+              class="message-content markdown-body"
+              v-html="renderMarkdown(message.content)"
+            />
+            <div
+              v-if="message.role === 'assistant' && message.model"
+              class="message-meta"
+            >
+              {{ message.model }}
+            </div>
           </div>
         </div>
         <div
           v-if="isStreaming"
-          class="message assistant streaming"
+          class="message-row assistant"
         >
-          <div class="message-role">
-            assistant
+          <div class="message-avatar">
+            AI
           </div>
-          <div class="message-content">
-            …
+          <div class="message assistant streaming">
+            <div class="message-role">
+              assistant
+            </div>
+            <div class="message-content">
+              …
+            </div>
           </div>
         </div>
       </div>
