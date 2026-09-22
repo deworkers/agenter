@@ -96,4 +96,23 @@ describe("ChatService", () => {
     expect(received).toEqual(events);
     expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello", undefined);
   });
+
+  it("delegates sendMessage with an explicit providerId", async () => {
+    const events: AgentEvent[] = [
+      { type: "run.started", provider: "p", model: "m" },
+      { type: "text.delta", text: "hi" },
+      { type: "run.completed" },
+    ];
+    const storage = fakeStorage();
+    const runtime = fakeRuntime(events);
+    const service = new ChatService(storage, runtime as never);
+
+    const received: AgentEvent[] = [];
+    for await (const event of service.sendMessage("c1", "hello", "api-fast")) {
+      received.push(event);
+    }
+
+    expect(received).toEqual(events);
+    expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello", "api-fast");
+  });
 });

@@ -17,4 +17,4 @@ providers:
     type: openai-compatible
     baseUrl: http://localhost:8080/v1
     apiKey: local
-    model: E:\models\Jackrong\Qwopus3.6-35B-A3B-Coder-MTP-Q3_K_M\Qwopus3.6-35B-A3B-Coder-MTP-Q3_K_M.gguf
+    model: qwen3

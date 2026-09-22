@@ -1,12 +1,14 @@
 # Phase 1: Chat + SQLite + OpenAI-compatible provider + streaming — Implementation Plan
 
+> **Status: IMPLEMENTED.** The code exists in the repository. Re-run the phase verification on Node.js >=24 before treating the historical plan as an independent release record.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a runnable LLM chat app — Express + SQLite backend, Vue 3 frontend — that lets a user create/list/open/delete chats, send a message, and see a streaming assistant response from any OpenAI-compatible endpoint, with history surviving app restarts.
 
-**Architecture:** Monorepo with npm workspaces. A provider-agnostic `AgentRuntime` (in `packages/agent-core`) depends only on an `LlmProvider` interface and a `ChatStorage` interface — never on concrete providers or SQLite. `packages/providers/openai-compatible` implements `LlmProvider` against any OpenAI-compatible `/chat/completions` endpoint (LM Studio, Ollama, vLLM, OpenAI itself). `packages/storage` implements `ChatStorage` with SQLite (`better-sqlite3`). `apps/api` wires these together behind Express routes and streams an internal `AgentEvent` protocol to the browser over SSE. `apps/web` (Vue 3 + Vite) renders the two-pane chat UI and speaks only the `AgentEvent` protocol, never a provider-specific format. No ProviderRegistry/Router, Skills, ToolRegistry, or MCP yet — those are later phases; this phase's abstractions are sized to not block them.
+**Architecture:** Monorepo with npm workspaces. A provider-agnostic `AgentRuntime` (in `packages/agent-core`) depends only on an `LlmProvider` interface and a `ChatStorage` interface — never on concrete providers or SQLite. `packages/providers/openai-compatible` implements `LlmProvider` against any OpenAI-compatible `/chat/completions` endpoint (LM Studio, Ollama, vLLM, OpenAI itself). `packages/storage` implements `ChatStorage` with Node's built-in `node:sqlite`. `apps/api` wires these together behind Express routes and streams an internal `AgentEvent` protocol to the browser over SSE. `apps/web` (Vue 3 + Vite) renders the two-pane chat UI and speaks only the `AgentEvent` protocol, never a provider-specific format. No ProviderRegistry/Router, Skills, ToolRegistry, or MCP yet — those are later phases; this phase's abstractions are sized to not block them.
 
-**Tech Stack:** Node.js (>=22.5, uses built-in `node:sqlite`), TypeScript (strict), Express, SSE via raw `res.write`, Vue 3 (`<script setup>`, Composition API), Vite, Vitest, ESLint (flat config), npm workspaces.
+**Tech Stack:** Node.js (>=24.0.0, uses built-in `node:sqlite`), TypeScript (strict), Express, SSE via raw `res.write`, Vue 3 (`<script setup>`, Composition API), Vite, Vitest, ESLint (flat config), npm workspaces.
 
 **Decisions worth flagging:**
 - SQLite: uses Node's built-in `node:sqlite` (`DatabaseSync`) instead of `better-sqlite3`. This machine has no MSVC build tools (`cl.exe` not found), so a native-compiled dependency is a real install risk; `node:sqlite` is zero-install and confirmed working (verified via a smoke script during planning). It's marked experimental in Node but stable enough for an MVP, and the storage layer is fully abstracted behind `ChatStorage`, so swapping to `better-sqlite3` later is a one-file change if needed.
@@ -159,7 +161,7 @@ This task has no application logic, so there's no red/green test cycle — the d
     "eslint": "10.10.0",
     "eslint-plugin-vue": "10.11.0",
     "globals": "17.12.0",
-    "typescript": "7.0.2",
+    "typescript": "6.0.3",
     "typescript-eslint": "8.70.0"
   }
 }
@@ -301,7 +303,7 @@ git commit -m "chore: scaffold npm workspaces monorepo"
     "test": "vitest run"
   },
   "devDependencies": {
-    "typescript": "7.0.2",
+    "typescript": "6.0.3",
     "vitest": "5.0.0"
   }
 }
@@ -831,7 +833,7 @@ git commit -m "feat(agent-core): add AgentRuntime orchestration"
     "@agenter/agent-core": "0.1.0"
   },
   "devDependencies": {
-    "typescript": "7.0.2",
+    "typescript": "6.0.3",
     "vitest": "5.0.0",
     "@types/node": "26.5.1"
   }
@@ -1232,7 +1234,7 @@ This provider talks to any server implementing the OpenAI `/chat/completions` SS
     "@agenter/agent-core": "0.1.0"
   },
   "devDependencies": {
-    "typescript": "7.0.2",
+    "typescript": "6.0.3",
     "vitest": "5.0.0"
   }
 }
@@ -1578,7 +1580,7 @@ git commit -m "feat(provider-openai-compatible): add streaming OpenAI-compatible
     "express": "5.2.1"
   },
   "devDependencies": {
-    "typescript": "7.0.2",
+    "typescript": "6.0.3",
     "vitest": "5.0.0",
     "@types/express": "5.0.6",
     "@types/node": "26.5.1"
@@ -2048,7 +2050,7 @@ git commit -m "feat(api): add SSE messages route and app bootstrap"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.9",
-    "typescript": "7.0.2",
+    "typescript": "6.0.3",
     "vite": "8.3.0",
     "vitest": "5.0.0",
     "vue-tsc": "3.5.42"

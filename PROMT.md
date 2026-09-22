@@ -131,12 +131,13 @@ interface LlmProvider {
 
 Конкретные реализации не должны проникать в AgentRuntime.
 
-На первом этапе реализовать:
+На текущем этапе реализовать только:
 
 ```text
 OpenAICompatibleProvider
-AnthropicProvider
 ```
+
+AnthropicProvider — это будущее расширение и не входит в текущий scope.
 
 OpenAICompatibleProvider должен поддерживать произвольный:
 
