@@ -1,9 +1,15 @@
 // apps/api/src/services/ChatService.ts
-import type { AgentEvent, AgentRuntime, Chat, ChatStorage, StoredMessage } from "@agenter/agent-core";
+import type { AgentEvent, AgentRuntime, Chat, ChatStorage, RoutingContext, StoredMessage } from "@agenter/agent-core";
 
 export interface ChatWithMessages {
   chat: Chat;
   messages: StoredMessage[];
+}
+
+export interface SendMessageOptions {
+  providerId?: string;
+  mode?: "manual" | "auto";
+  routingContext?: RoutingContext;
 }
 
 export class ChatService {
@@ -31,7 +37,7 @@ export class ChatService {
     this.storage.deleteChat(id);
   }
 
-  async *sendMessage(chatId: string, content: string, providerId?: string): AsyncGenerator<AgentEvent> {
-    yield* this.runtime.runTurn(chatId, content, providerId);
+  async *sendMessage(chatId: string, content: string, options?: SendMessageOptions): AsyncGenerator<AgentEvent> {
+    yield* this.runtime.runTurn(chatId, content, options);
   }
 }

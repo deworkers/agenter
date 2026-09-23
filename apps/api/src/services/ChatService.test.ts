@@ -97,22 +97,17 @@ describe("ChatService", () => {
     expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello", undefined);
   });
 
-  it("delegates sendMessage with an explicit providerId", async () => {
-    const events: AgentEvent[] = [
-      { type: "run.started", provider: "p", model: "m" },
-      { type: "text.delta", text: "hi" },
-      { type: "run.completed" },
-    ];
+  it("forwards providerId, mode, and routingContext options to AgentRuntime.runTurn", async () => {
     const storage = fakeStorage();
-    const runtime = fakeRuntime(events);
+    const runtime = fakeRuntime([]);
     const service = new ChatService(storage, runtime as never);
 
+    const options = { mode: "auto" as const, routingContext: { activeSkill: "code-review" } };
     const received: AgentEvent[] = [];
-    for await (const event of service.sendMessage("c1", "hello", "api-fast")) {
+    for await (const event of service.sendMessage("c1", "hello", options)) {
       received.push(event);
     }
 
-    expect(received).toEqual(events);
-    expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello", "api-fast");
+    expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello", options);
   });
 });

@@ -1,0 +1,15 @@
+# TaskType -> provider id map for the rule-based ProviderRouter (auto mode).
+# Provider ids must exist in config/providers.yaml; entries here are not
+# validated against the registry at startup (an unknown id surfaces as a
+# run.error on the first auto-routed request).
+routes:
+  simple:
+    provider: local
+  coding:
+    provider: local
+  reasoning:
+    provider: api-smart
+  research:
+    provider: api-smart
+  vision:
+    provider: local

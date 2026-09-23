@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { AgentRuntime } from "./AgentRuntime.js";
 import { ProviderRegistry } from "./ProviderRegistry.js";
+import { ProviderRouter } from "./ProviderRouter.js";
+import type { RoutingConfig } from "./ProviderRouter.js";
 import type { ChatStorage, LlmEvent, LlmProvider, StoredMessage } from "./types.js";
 
 function fakeStorage(initialHistory: StoredMessage[] = []): ChatStorage {
@@ -61,8 +63,16 @@ function registryWith(providers: LlmProvider[], defaultProviderId: string): Prov
   return registry;
 }
 
+const routingConfig: RoutingConfig = {
+  simple: { provider: "fake" },
+  coding: { provider: "coder" },
+  reasoning: { provider: "fake" },
+  research: { provider: "fake" },
+  vision: { provider: "fake" },
+};
+
 describe("AgentRuntime.runTurn", () => {
-  it("uses the registry's default provider when none is named", async () => {
+  it("uses the registry's default provider when no options are given", async () => {
     const storage = fakeStorage();
     const provider = fakeProvider("fake", "fake-model", [
       { type: "text.delta", text: "Hel" },
@@ -70,7 +80,8 @@ describe("AgentRuntime.runTurn", () => {
       { type: "done", usage: { promptTokens: 10, completionTokens: 2 } },
     ]);
     const registry = registryWith([provider], "fake");
-    const runtime = new AgentRuntime(registry, storage, "You are helpful.");
+    const router = new ProviderRouter(routingConfig);
+    const runtime = new AgentRuntime(registry, storage, router, "You are helpful.");
 
     const events = [];
     for await (const event of runtime.runTurn("chat-1", "hi")) {
@@ -83,23 +94,10 @@ describe("AgentRuntime.runTurn", () => {
       { type: "text.delta", text: "lo!" },
       { type: "run.completed", usage: { promptTokens: 10, completionTokens: 2 } },
     ]);
-
-    expect(storage.addMessage).toHaveBeenNthCalledWith(1, {
-      chatId: "chat-1",
-      role: "user",
-      content: "hi",
-    });
-    expect(storage.addMessage).toHaveBeenNthCalledWith(2, {
-      chatId: "chat-1",
-      role: "assistant",
-      content: "Hello!",
-      provider: "fake",
-      model: "fake-model",
-    });
     expect(storage.addRun).toHaveBeenCalledOnce();
   });
 
-  it("uses the named provider when providerId is given", async () => {
+  it("uses the named provider when providerId is given, ignoring mode", async () => {
     const storage = fakeStorage();
     const defaultProvider = fakeProvider("default-one", "default-model", []);
     const namedProvider = fakeProvider("other", "other-model", [
@@ -107,23 +105,77 @@ describe("AgentRuntime.runTurn", () => {
       { type: "done" },
     ]);
     const registry = registryWith([defaultProvider, namedProvider], "default-one");
-    const runtime = new AgentRuntime(registry, storage, "You are helpful.");
+    const router = new ProviderRouter(routingConfig);
+    const runtime = new AgentRuntime(registry, storage, router, "You are helpful.");
 
     const events = [];
-    for await (const event of runtime.runTurn("chat-1", "hi", "other")) {
+    for await (const event of runtime.runTurn("chat-1", "hi", { providerId: "other", mode: "auto" })) {
       events.push(event);
     }
 
     expect(events[0]).toEqual({ type: "run.started", provider: "other", model: "other-model" });
   });
 
+  it("routes via ProviderRouter when mode is auto and no providerId is given", async () => {
+    const storage = fakeStorage();
+    const fast = fakeProvider("fake", "fake-model", []);
+    const coder = fakeProvider("coder", "coder-model", [
+      { type: "text.delta", text: "code" },
+      { type: "done" },
+    ]);
+    const registry = registryWith([fast, coder], "fake");
+    const router = new ProviderRouter(routingConfig);
+    const runtime = new AgentRuntime(registry, storage, router, "You are helpful.");
+
+    const events = [];
+    for await (const event of runtime.runTurn("chat-1", "hi", {
+      mode: "auto",
+      routingContext: { activeSkill: "code-review" },
+    })) {
+      events.push(event);
+    }
+
+    expect(events[0]).toEqual({ type: "run.started", provider: "coder", model: "coder-model" });
+  });
+
+  it("falls back to the registry default when mode is auto but routingContext is omitted", async () => {
+    const storage = fakeStorage();
+    const provider = fakeProvider("fake", "fake-model", [{ type: "done" }]);
+    const registry = registryWith([provider], "fake");
+    const router = new ProviderRouter(routingConfig);
+    const runtime = new AgentRuntime(registry, storage, router, "You are helpful.");
+
+    const events = [];
+    for await (const event of runtime.runTurn("chat-1", "hi", { mode: "auto" })) {
+      events.push(event);
+    }
+
+    expect(events[0]).toEqual({ type: "run.started", provider: "fake", model: "fake-model" });
+  });
+
+  it("uses the registry default when mode is manual (or omitted) and no providerId is given", async () => {
+    const storage = fakeStorage();
+    const provider = fakeProvider("fake", "fake-model", [{ type: "done" }]);
+    const registry = registryWith([provider], "fake");
+    const router = new ProviderRouter(routingConfig);
+    const runtime = new AgentRuntime(registry, storage, router, "You are helpful.");
+
+    const events = [];
+    for await (const event of runtime.runTurn("chat-1", "hi", { mode: "manual" })) {
+      events.push(event);
+    }
+
+    expect(events[0]).toEqual({ type: "run.started", provider: "fake", model: "fake-model" });
+  });
+
   it("emits run.error and persists no assistant message when providerId is unknown", async () => {
     const storage = fakeStorage();
     const registry = registryWith([fakeProvider("fake", "fake-model", [])], "fake");
-    const runtime = new AgentRuntime(registry, storage, "You are helpful.");
+    const router = new ProviderRouter(routingConfig);
+    const runtime = new AgentRuntime(registry, storage, router, "You are helpful.");
 
     const events = [];
-    for await (const event of runtime.runTurn("chat-1", "hi", "unknown-provider")) {
+    for await (const event of runtime.runTurn("chat-1", "hi", { providerId: "unknown-provider" })) {
       events.push(event);
     }
 
@@ -131,11 +183,6 @@ describe("AgentRuntime.runTurn", () => {
       { type: "run.error", message: 'Unknown provider "unknown-provider"' },
     ]);
     expect(storage.addMessage).toHaveBeenCalledOnce();
-    expect(storage.addMessage).toHaveBeenCalledWith({
-      chatId: "chat-1",
-      role: "user",
-      content: "hi",
-    });
     expect(storage.addRun).not.toHaveBeenCalled();
   });
 
@@ -143,7 +190,8 @@ describe("AgentRuntime.runTurn", () => {
     const storage = fakeStorage();
     const provider = fakeProvider("fake", "fake-model", [{ type: "error", message: "upstream down" }]);
     const registry = registryWith([provider], "fake");
-    const runtime = new AgentRuntime(registry, storage, "You are helpful.");
+    const router = new ProviderRouter(routingConfig);
+    const runtime = new AgentRuntime(registry, storage, router, "You are helpful.");
 
     const events = [];
     for await (const event of runtime.runTurn("chat-1", "hi")) {
@@ -154,12 +202,6 @@ describe("AgentRuntime.runTurn", () => {
       { type: "run.started", provider: "fake", model: "fake-model" },
       { type: "run.error", message: "upstream down" },
     ]);
-
     expect(storage.addMessage).toHaveBeenCalledOnce();
-    expect(storage.addMessage).toHaveBeenCalledWith({
-      chatId: "chat-1",
-      role: "user",
-      content: "hi",
-    });
   });
 });

@@ -1,6 +1,6 @@
 // apps/api/src/index.ts
 import express from "express";
-import { AgentRuntime } from "@agenter/agent-core";
+import { AgentRuntime, ProviderRouter } from "@agenter/agent-core";
 import { SqliteChatStorage } from "@agenter/storage";
 import { loadConfig } from "./config.js";
 import { buildProviderRegistry } from "./providerFactory.js";
@@ -13,7 +13,8 @@ const config = loadConfig();
 
 const storage = new SqliteChatStorage(config.dbPath);
 const registry = buildProviderRegistry(config);
-const runtime = new AgentRuntime(registry, storage);
+const router = new ProviderRouter(config.routing);
+const runtime = new AgentRuntime(registry, storage, router);
 const chatService = new ChatService(storage, runtime);
 
 const app = express();

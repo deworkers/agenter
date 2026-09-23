@@ -1,6 +1,13 @@
 import { writeFileSync, unlinkSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
-import { interpolateEnv, loadConfigFromFile, loadConfig, validateConfig, type AppConfig } from "./config.js";
+import {
+  interpolateEnv,
+  loadConfigFromFile,
+  loadConfig,
+  loadRoutingConfigFromFile,
+  validateConfig,
+  type AppConfig,
+} from "./config.js";
 
 describe("interpolateEnv", () => {
   it("replaces ${VAR} with the environment variable value", () => {
@@ -155,6 +162,147 @@ describe("loadConfigFromFile", () => {
     expect(() => loadConfigFromFile(filePath, { skipRemoteInterpolation: true })).not.toThrow();
 
     if (wasSet) process.env.TOOKEN_CLUB_API_KEY = wasSet;
+  });
+});
+
+describe("loadRoutingConfigFromFile", () => {
+  const filePath = "./.tmp-test-routing.yaml";
+
+  afterEach(() => {
+    try {
+      unlinkSync(filePath);
+    } catch {
+      // ignore
+    }
+  });
+
+  it("parses routing.yaml into a RoutingConfig keyed by TaskType", () => {
+    writeFileSync(
+      filePath,
+      [
+        "routes:",
+        "  simple:",
+        "    provider: local-fast",
+        "  coding:",
+        "    provider: local-code",
+        "  reasoning:",
+        "    provider: local-fast",
+        "  research:",
+        "    provider: local-fast",
+        "  vision:",
+        "    provider: local-fast",
+        "",
+      ].join("\n")
+    );
+
+    const routing = loadRoutingConfigFromFile(filePath);
+
+    expect(routing).toEqual({
+      simple: { provider: "local-fast" },
+      coding: { provider: "local-code" },
+      reasoning: { provider: "local-fast" },
+      research: { provider: "local-fast" },
+      vision: { provider: "local-fast" },
+    });
+  });
+
+  it("throws when a TaskType is missing from routes", () => {
+    writeFileSync(
+      filePath,
+      ["routes:", "  simple:", "    provider: local-fast", ""].join("\n")
+    );
+
+    expect(() => loadRoutingConfigFromFile(filePath)).toThrow(
+      'routing.yaml is missing a route for task type "coding"'
+    );
+  });
+
+  it("throws a clear config error (not an incidental TypeError) when the routes mapping is absent", () => {
+    writeFileSync(filePath, ["# a routing file that declares no routes at all", ""].join("\n"));
+
+    let caught: unknown;
+    try {
+      loadRoutingConfigFromFile(filePath);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).not.toBeInstanceOf(TypeError);
+    expect((caught as Error).message).toBe(
+      'Invalid routing configuration: routing.yaml must define a "routes" mapping'
+    );
+  });
+
+  it("throws a clear config error when a route entry is a scalar instead of an object", () => {
+    writeFileSync(
+      filePath,
+      [
+        "routes:",
+        "  simple: local-fast",
+        "  coding:",
+        "    provider: local-code",
+        "  reasoning:",
+        "    provider: local-fast",
+        "  research:",
+        "    provider: local-fast",
+        "  vision:",
+        "    provider: local-fast",
+        "",
+      ].join("\n")
+    );
+
+    expect(() => loadRoutingConfigFromFile(filePath)).toThrow(
+      'Invalid routing configuration: route for task type "simple" must be an object with a "provider"'
+    );
+  });
+
+  it("throws a clear config error when a route provider is not a string", () => {
+    writeFileSync(
+      filePath,
+      [
+        "routes:",
+        "  simple:",
+        "    provider: 123",
+        "  coding:",
+        "    provider: local-code",
+        "  reasoning:",
+        "    provider: local-fast",
+        "  research:",
+        "    provider: local-fast",
+        "  vision:",
+        "    provider: local-fast",
+        "",
+      ].join("\n")
+    );
+
+    expect(() => loadRoutingConfigFromFile(filePath)).toThrow(
+      'Invalid routing configuration: route for task type "simple" must map "provider" to a non-empty string'
+    );
+  });
+
+  it("throws a clear config error when a route provider is an empty string", () => {
+    writeFileSync(
+      filePath,
+      [
+        "routes:",
+        "  simple:",
+        '    provider: ""',
+        "  coding:",
+        "    provider: local-code",
+        "  reasoning:",
+        "    provider: local-fast",
+        "  research:",
+        "    provider: local-fast",
+        "  vision:",
+        "    provider: local-fast",
+        "",
+      ].join("\n")
+    );
+
+    expect(() => loadRoutingConfigFromFile(filePath)).toThrow(
+      'Invalid routing configuration: route for task type "simple" must map "provider" to a non-empty string'
+    );
   });
 });
 

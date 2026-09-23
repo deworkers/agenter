@@ -1,4 +1,6 @@
 // apps/api/src/config.ts
+import { ALL_TASK_TYPES } from "@agenter/agent-core";
+import type { RoutingConfig } from "@agenter/agent-core";
 import { config as loadEnv } from "dotenv";
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
@@ -22,6 +24,7 @@ export interface AppConfig {
   dbPath: string;
   providers: ProviderConfigEntry[];
   defaultProviderId: string;
+  routing: RoutingConfig;
 }
 
 const ENV_PLACEHOLDER = /^\$\{([A-Z0-9_]+)\}$/;
@@ -73,6 +76,45 @@ export function loadConfigFromFile(
   });
 
   return { providers, defaultProviderId };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// Plain YAML parse with a runtime shape check: no env-var interpolation is
+// needed here because provider ids are not secrets. The YAML may be malformed
+// in ways the type system cannot see (missing `routes`, scalar route entries,
+// non-string or empty `provider` values), so each level is validated at runtime
+// and reported as a clear config error instead of surfacing as an incidental
+// TypeError (e.g. reading `routes` of a null document).
+export function loadRoutingConfigFromFile(routingYamlPath: string): RoutingConfig {
+  const raw = parseYaml(readFileSync(routingYamlPath, "utf-8")) as { routes?: unknown } | null;
+
+  if (!isPlainObject(raw) || !isPlainObject(raw.routes)) {
+    throw new Error('Invalid routing configuration: routing.yaml must define a "routes" mapping');
+  }
+
+  const routes = raw.routes;
+
+  for (const taskType of ALL_TASK_TYPES) {
+    const entry = routes[taskType];
+    if (!entry) {
+      throw new Error(`routing.yaml is missing a route for task type "${taskType}"`);
+    }
+    if (!isPlainObject(entry)) {
+      throw new Error(
+        `Invalid routing configuration: route for task type "${taskType}" must be an object with a "provider"`
+      );
+    }
+    if (typeof entry.provider !== "string" || entry.provider.trim() === "") {
+      throw new Error(
+        `Invalid routing configuration: route for task type "${taskType}" must map "provider" to a non-empty string`
+      );
+    }
+  }
+
+  return routes as RoutingConfig;
 }
 
 const REQUIRED_FIELDS = ["baseUrl", "apiKey", "model"] as const;
@@ -134,10 +176,12 @@ export function validateConfig(
 }
 
 export function loadConfig(): AppConfig {
-  const configPath = path.resolve(__dirname, "../../../config/providers.yaml");
+  const providersYamlPath = path.resolve(__dirname, "../../../config/providers.yaml");
+  const routingYamlPath = path.resolve(__dirname, "../../../config/routing.yaml");
   // Production-relevant behavior: local-only mode must not resolve ${VAR} placeholders on inactive remote
   // providers, so skipRemoteInterpolation is passed to avoid the missing-key crash.
-  const { providers, defaultProviderId } = loadConfigFromFile(configPath, { skipRemoteInterpolation: true });
+  const { providers, defaultProviderId } = loadConfigFromFile(providersYamlPath, { skipRemoteInterpolation: true });
+  const routing = loadRoutingConfigFromFile(routingYamlPath);
 
   validateConfig({ providers, defaultProviderId });
 
@@ -146,5 +190,6 @@ export function loadConfig(): AppConfig {
     dbPath: process.env.DB_PATH ?? "./data/agenter.db",
     providers,
     defaultProviderId,
+    routing,
   };
 }
