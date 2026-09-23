@@ -5,6 +5,12 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
 export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;

@@ -311,22 +311,18 @@ describe("loadConfig", () => {
     "reads the production config/providers.yaml via exported loadConfig without mutating repo/env config, " +
       "does not throw in local-only mode, and reports the declared default provider",
     () => {
-      // Production path reads the real providers.yaml. Guard only against an already-present remote key
-      // so this assertion cannot be satisfied by a stray ${VAR} being resolved; otherwise the bug is masked.
-      const wasRemoteSet = process.env.TOOKEN_CLUB_API_KEY;
-      if (wasRemoteSet) {
-        delete process.env.TOOKEN_CLUB_API_KEY;
-      }
-
-      expect(() => loadConfig()).not.toThrow();
-
-      const cfg: AppConfig | undefined = loadConfig();
-      expect(cfg).toBeDefined();
-      expect(cfg?.defaultProviderId).toBe("local");
-      expect(cfg?.providers.length).toBeGreaterThan(0);
-
-      if (wasRemoteSet) {
-        process.env.TOOKEN_CLUB_API_KEY = wasRemoteSet;
+      const previousKey = process.env.OPENAI_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+      try {
+        const cfg: AppConfig = loadConfig();
+        expect(cfg.defaultProviderId).toBe("local");
+        expect(cfg.providers.filter(({ id }) => id !== "local").map(({ id, baseUrl, model }) => ({ id, baseUrl, model }))).toEqual([
+          { id: "api-smart", baseUrl: "https://api.openai.com/v1", model: "gpt-4.1" },
+          { id: "api-fast", baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
+        ]);
+      } finally {
+        if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+        else process.env.OPENAI_API_KEY = previousKey;
       }
     }
   );

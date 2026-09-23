@@ -6,6 +6,7 @@ import { AgentRuntime, ProviderRouter } from "@agenter/agent-core";
 import { SqliteChatStorage } from "@agenter/storage";
 import { SkillRegistry } from "@agenter/skills";
 import { loadConfig } from "./config.js";
+import { buildLocalToolRegistry } from "./localTools.js";
 import { buildProviderRegistry } from "./providerFactory.js";
 import { ChatService } from "./services/ChatService.js";
 import { createChatsRouter } from "./routes/chats.js";
@@ -29,6 +30,7 @@ skillRegistry.scan();
 const chatService = new ChatService(storage, runtime, skillRegistry);
 
 const app = express();
+app.locals.tools = buildLocalToolRegistry();
 app.use(express.json());
 
 app.use("/api/chats", createChatsRouter(chatService));
