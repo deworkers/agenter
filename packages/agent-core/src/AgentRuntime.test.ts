@@ -13,7 +13,7 @@ function fakeStorage(initialHistory: StoredMessage[] = []): ChatStorage {
     getChat: vi.fn(),
     deleteChat: vi.fn(),
     touchChat: vi.fn(),
-    listMessages: vi.fn(() => history),
+    listMessages: vi.fn(() => [...history]),
     addMessage: vi.fn((input) => {
       const stored: StoredMessage = {
         id: `m${history.length + 1}`,
@@ -203,5 +203,37 @@ describe("AgentRuntime.runTurn", () => {
       { type: "run.error", message: "upstream down" },
     ]);
     expect(storage.addMessage).toHaveBeenCalledOnce();
+  });
+
+  it("forwards activeSkillContent into the built context as an extra system message", async () => {
+    const storage = fakeStorage();
+    let capturedMessages: unknown;
+    const provider: LlmProvider = {
+      id: "fake",
+      model: "fake-model",
+      supportsTools: () => false,
+      supportsVision: () => false,
+      getContextWindow: () => 8192,
+      async *chat(request) {
+        capturedMessages = request.messages;
+        yield { type: "done" };
+      },
+    };
+    const registry = registryWith([provider], "fake");
+    const router = new ProviderRouter(routingConfig);
+    const runtime = new AgentRuntime(registry, storage, router, "You are helpful.");
+
+    const events = [];
+    for await (const event of runtime.runTurn("chat-1", "review this", {
+      activeSkillContent: "# Code Review\n\nInspect correctness.",
+    })) {
+      events.push(event);
+    }
+
+    expect(capturedMessages).toEqual([
+      { role: "system", content: "You are helpful." },
+      { role: "system", content: "# Code Review\n\nInspect correctness." },
+      { role: "user", content: "review this" },
+    ]);
   });
 });

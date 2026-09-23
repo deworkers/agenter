@@ -7,6 +7,7 @@ export interface RunTurnOptions {
   providerId?: string;
   mode?: "manual" | "auto";
   routingContext?: RoutingContext;
+  activeSkillContent?: string;
 }
 
 export class AgentRuntime {
@@ -30,6 +31,7 @@ export class AgentRuntime {
 
     const context = buildContext({
       systemPrompt: this.systemPrompt,
+      activeSkillContent: options.activeSkillContent,
       history,
       currentMessage: userMessage,
     });

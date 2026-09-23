@@ -14,6 +14,7 @@ export function createMessagesRouter(chatService: ChatService): Router {
 
     const providerId = typeof req.body?.providerId === "string" ? req.body.providerId : undefined;
     const mode = req.body?.mode === "auto" ? "auto" : req.body?.mode === "manual" ? "manual" : undefined;
+    const skillId = typeof req.body?.skillId === "string" ? req.body.skillId : undefined;
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -21,7 +22,7 @@ export function createMessagesRouter(chatService: ChatService): Router {
     res.flushHeaders();
 
     try {
-      for await (const event of chatService.sendMessage(req.params.id, content, { providerId, mode })) {
+      for await (const event of chatService.sendMessage(req.params.id, content, { providerId, mode, skillId })) {
         res.write(`data: ${JSON.stringify(event)}\n\n`);
       }
     } catch (error) {

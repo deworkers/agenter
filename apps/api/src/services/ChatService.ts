@@ -1,5 +1,6 @@
 // apps/api/src/services/ChatService.ts
 import type { AgentEvent, AgentRuntime, Chat, ChatStorage, RoutingContext, StoredMessage } from "@agenter/agent-core";
+import type { SkillRegistry } from "@agenter/skills";
 
 export interface ChatWithMessages {
   chat: Chat;
@@ -10,12 +11,14 @@ export interface SendMessageOptions {
   providerId?: string;
   mode?: "manual" | "auto";
   routingContext?: RoutingContext;
+  skillId?: string;
 }
 
 export class ChatService {
   constructor(
     private readonly storage: ChatStorage,
-    private readonly runtime: AgentRuntime
+    private readonly runtime: AgentRuntime,
+    private readonly skills: SkillRegistry
   ) {}
 
   listChats(): Chat[] {
@@ -37,7 +40,23 @@ export class ChatService {
     this.storage.deleteChat(id);
   }
 
-  async *sendMessage(chatId: string, content: string, options?: SendMessageOptions): AsyncGenerator<AgentEvent> {
-    yield* this.runtime.runTurn(chatId, content, options);
+  async *sendMessage(chatId: string, content: string, options: SendMessageOptions = {}): AsyncGenerator<AgentEvent> {
+    const { skillId, ...rest } = options;
+
+    if (!skillId) {
+      yield* this.runtime.runTurn(chatId, content, rest);
+      return;
+    }
+
+    const activeSkillContent = this.skills.getContent(skillId);
+    if (activeSkillContent === undefined) {
+      throw new Error(`Unknown skill "${skillId}"`);
+    }
+
+    yield* this.runtime.runTurn(chatId, content, {
+      ...rest,
+      activeSkillContent,
+      routingContext: { ...rest.routingContext, activeSkill: skillId },
+    });
   }
 }

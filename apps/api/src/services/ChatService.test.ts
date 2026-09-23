@@ -1,6 +1,7 @@
 // apps/api/src/services/ChatService.test.ts
 import { describe, expect, it, vi } from "vitest";
 import type { AgentEvent, Chat, ChatStorage, StoredMessage } from "@agenter/agent-core";
+import type { SkillRegistry } from "@agenter/skills";
 import { ChatService } from "./ChatService.js";
 
 function fakeStorage(chats: Chat[] = [], messagesByChat: Record<string, StoredMessage[]> = {}): ChatStorage {
@@ -31,10 +32,18 @@ function fakeRuntime(events: AgentEvent[]) {
   };
 }
 
+function fakeSkillRegistry(content: Record<string, string> = {}): SkillRegistry {
+  return {
+    scan: vi.fn(),
+    list: vi.fn(() => []),
+    getContent: vi.fn((id: string) => content[id]),
+  } as unknown as SkillRegistry;
+}
+
 describe("ChatService", () => {
   it("creates a chat with a default title when none is given", () => {
     const storage = fakeStorage();
-    const service = new ChatService(storage, fakeRuntime([]) as never);
+    const service = new ChatService(storage, fakeRuntime([]) as never, fakeSkillRegistry());
 
     const chat = service.createChat();
 
@@ -45,7 +54,7 @@ describe("ChatService", () => {
   it("lists chats via storage", () => {
     const existing: Chat = { id: "c1", title: "Existing", createdAt: "t", updatedAt: "t" };
     const storage = fakeStorage([existing]);
-    const service = new ChatService(storage, fakeRuntime([]) as never);
+    const service = new ChatService(storage, fakeRuntime([]) as never, fakeSkillRegistry());
 
     expect(service.listChats()).toEqual([existing]);
   });
@@ -62,7 +71,7 @@ describe("ChatService", () => {
       createdAt: "t",
     };
     const storage = fakeStorage([existing], { c1: [message] });
-    const service = new ChatService(storage, fakeRuntime([]) as never);
+    const service = new ChatService(storage, fakeRuntime([]) as never, fakeSkillRegistry());
 
     expect(service.getChatWithMessages("c1")).toEqual({ chat: existing, messages: [message] });
     expect(service.getChatWithMessages("missing")).toBeUndefined();
@@ -71,7 +80,7 @@ describe("ChatService", () => {
   it("deletes a chat via storage", () => {
     const existing: Chat = { id: "c1", title: "Existing", createdAt: "t", updatedAt: "t" };
     const storage = fakeStorage([existing]);
-    const service = new ChatService(storage, fakeRuntime([]) as never);
+    const service = new ChatService(storage, fakeRuntime([]) as never, fakeSkillRegistry());
 
     service.deleteChat("c1");
 
@@ -86,7 +95,7 @@ describe("ChatService", () => {
     ];
     const storage = fakeStorage();
     const runtime = fakeRuntime(events);
-    const service = new ChatService(storage, runtime as never);
+    const service = new ChatService(storage, runtime as never, fakeSkillRegistry());
 
     const received: AgentEvent[] = [];
     for await (const event of service.sendMessage("c1", "hello")) {
@@ -94,20 +103,82 @@ describe("ChatService", () => {
     }
 
     expect(received).toEqual(events);
-    expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello", undefined);
+    expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello", {});
   });
 
-  it("forwards providerId, mode, and routingContext options to AgentRuntime.runTurn", async () => {
+  it("forwards providerId, mode, and routingContext options to AgentRuntime.runTurn when no skillId is given", async () => {
     const storage = fakeStorage();
     const runtime = fakeRuntime([]);
-    const service = new ChatService(storage, runtime as never);
+    const service = new ChatService(storage, runtime as never, fakeSkillRegistry());
 
-    const options = { mode: "auto" as const, routingContext: { activeSkill: "code-review" } };
+    const options = { mode: "auto" as const, routingContext: { toolsRequired: true } };
     const received: AgentEvent[] = [];
     for await (const event of service.sendMessage("c1", "hello", options)) {
       received.push(event);
     }
 
     expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello", options);
+  });
+
+  it("resolves skillId into activeSkillContent and sets routingContext.activeSkill", async () => {
+    const storage = fakeStorage();
+    const runtime = fakeRuntime([]);
+    const skills = fakeSkillRegistry({ "code-review": "# Code Review\n\nInspect correctness." });
+    const service = new ChatService(storage, runtime as never, skills);
+
+    const received: AgentEvent[] = [];
+    for await (const event of service.sendMessage("c1", "review this", {
+      mode: "auto",
+      skillId: "code-review",
+    })) {
+      received.push(event);
+    }
+
+    expect(skills.getContent).toHaveBeenCalledWith("code-review");
+    expect(runtime.runTurn).toHaveBeenCalledWith("c1", "review this", {
+      mode: "auto",
+      activeSkillContent: "# Code Review\n\nInspect correctness.",
+      routingContext: { activeSkill: "code-review" },
+    });
+  });
+
+  it("merges activeSkill into an existing routingContext without dropping other fields", async () => {
+    const storage = fakeStorage();
+    const runtime = fakeRuntime([]);
+    const skills = fakeSkillRegistry({ "code-review": "# Code Review" });
+    const service = new ChatService(storage, runtime as never, skills);
+
+    const received: AgentEvent[] = [];
+    for await (const event of service.sendMessage("c1", "review this", {
+      mode: "auto",
+      skillId: "code-review",
+      routingContext: { toolsRequired: true },
+    })) {
+      received.push(event);
+    }
+
+    expect(runtime.runTurn).toHaveBeenCalledWith("c1", "review this", {
+      mode: "auto",
+      activeSkillContent: "# Code Review",
+      routingContext: { toolsRequired: true, activeSkill: "code-review" },
+    });
+  });
+
+  it("throws when skillId does not match a registered skill, without calling runTurn", async () => {
+    const storage = fakeStorage();
+    const runtime = fakeRuntime([]);
+    const service = new ChatService(storage, runtime as never, fakeSkillRegistry());
+
+    const drain = async () => {
+      const stream = service.sendMessage("c1", "hi", { skillId: "missing" });
+      // draining the generator to trigger the throw
+      let step = await stream.next();
+      while (!step.done) {
+        step = await stream.next();
+      }
+    };
+
+    await expect(drain()).rejects.toThrow('Unknown skill "missing"');
+    expect(runtime.runTurn).not.toHaveBeenCalled();
   });
 });

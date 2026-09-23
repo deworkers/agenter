@@ -2,6 +2,7 @@ import type { ChatMessage, StoredMessage } from "./types.js";
 
 export interface BuildContextInput {
   systemPrompt: string;
+  activeSkillContent?: string;
   history: StoredMessage[];
   currentMessage: string;
 }
@@ -11,6 +12,10 @@ export function buildContext(input: BuildContextInput): ChatMessage[] {
 
   if (input.systemPrompt.length > 0) {
     messages.push({ role: "system", content: input.systemPrompt });
+  }
+
+  if (input.activeSkillContent) {
+    messages.push({ role: "system", content: input.activeSkillContent });
   }
 
   for (const stored of input.history) {
