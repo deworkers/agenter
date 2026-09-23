@@ -17,4 +17,4 @@ providers:
     type: openai-compatible
     baseUrl: http://localhost:8080/v1
     apiKey: local
-    model: qwen3
+    model: 'E:\models\Ornith-1.5-9B-MTP-NVFP4\Ornith-1.5-9B-MTP-NVFP4.gguf'
