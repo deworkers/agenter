@@ -8,12 +8,12 @@ testable increment. A plan is not evidence that its code exists.
 
 | Phase | Scope | Documentation | Code status |
 |---|---|---|---|
-| 1 | Chat, SQLite, OpenAI-compatible streaming | `plans/2026-09-15-phase1-chat-mvp.md` | Implemented; plan status should be verified separately |
+| 1 | Chat, SQLite, OpenAI-compatible streaming | `plans/2026-09-15-phase1-chat-mvp.md` | Implemented |
 | 2 | Provider registry and manual provider selection | `plans/2026-09-16-phase2-provider-registry.md` | Implemented; DONE in plan |
-| 3 | Manual/auto provider router | `plans/2026-09-16-phase3-provider-router.md` | Planned; not evidence of implementation |
-| 4 | Filesystem SkillRegistry and manual skill selection | `plans/2026-09-16-phase4-skills.md` | Planned; not evidence of implementation |
-| 5 | ToolRegistry and local tools | `plans/2026-09-21-phase5-tool-registry.md` | Planned |
-| 6 | MCP stdio integration | `plans/2026-09-21-phase6-mcp.md` | Planned |
+| 3 | Manual/auto provider router | `plans/2026-09-16-phase3-provider-router.md` | Implemented |
+| 4 | Filesystem SkillRegistry and skill metadata API | `plans/2026-09-16-phase4-skills.md` | Implemented; `/api/skills` lists metadata only |
+| 5 | ToolRegistry and local tool contract | `plans/2026-09-21-phase5-tool-registry.md` | Implemented; API registry is empty by default |
+| 6 | MCP stdio integration | `plans/2026-09-21-phase6-mcp.md` | Implemented; tests/typecheck/lint reviewed |
 | 7 | Agent tool loop | `plans/2026-09-21-phase7-tool-loop.md` | Planned |
 | 8 | Model, skill, and tool UI | `plans/2026-09-21-phase8-ui.md` | Planned; provider selector exists as an early Phase 2 addition |
 | 9 | Reliability, security, observability, and cleanup | `plans/2026-09-21-phase9-reliability.md` | Planned |

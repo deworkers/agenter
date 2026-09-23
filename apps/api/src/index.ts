@@ -13,6 +13,10 @@ import { createChatsRouter } from "./routes/chats.js";
 import { createProvidersRouter } from "./routes/providers.js";
 import { createSkillsRouter } from "./routes/skills.js";
 import { createMessagesRouter } from "./routes/messages.js";
+import { McpManager } from "@agenter/mcp";
+import { loadMcpConfigFromFile } from "./mcpConfig.js";
+import { createMcpRouter } from "./routes/mcp.js";
+import { registerMcpShutdownHandlers } from "./mcpLifecycle.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,14 +34,22 @@ skillRegistry.scan();
 const chatService = new ChatService(storage, runtime, skillRegistry);
 
 const app = express();
-app.locals.tools = buildLocalToolRegistry();
+const tools = buildLocalToolRegistry();
+app.locals.tools = tools;
+const mcpManager = new McpManager(tools);
 app.use(express.json());
 
 app.use("/api/chats", createChatsRouter(chatService));
 app.use("/api/chats", createMessagesRouter(chatService));
 app.use("/api/providers", createProvidersRouter(registry));
 app.use("/api/skills", createSkillsRouter(skillRegistry));
+app.use("/api/mcp", createMcpRouter(mcpManager));
 
-app.listen(config.port, () => {
+const mcpConfigPath = path.resolve(__dirname, "../../../config/mcp.json");
+const mcpConfig = loadMcpConfigFromFile(mcpConfigPath);
+await mcpManager.start(mcpConfig);
+
+const server = app.listen(config.port, () => {
   console.log(`agenter api listening on http://localhost:${config.port}`);
 });
+registerMcpShutdownHandlers(server, mcpManager, process);
