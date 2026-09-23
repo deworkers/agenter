@@ -6,12 +6,19 @@ This repository is a Node.js/TypeScript monorepo for a local-first LLM chat.
 The backend is Express + SQLite, the frontend is Vue 3 + Vite, and packages
 provide the agent core, storage boundary, and OpenAI-compatible adapter.
 
-Read `PROMT.md` for the product requirements. Read the relevant plan in
-`docs/superpowers/plans/` before implementing a phase. The plans are scoped:
-Phase 2 (provider registry) is implemented; Phase 3 (provider router) and
-Phase 4 (skills) are plans, not proof that those features exist. ToolRegistry,
-MCP, the tool loop, the remaining UI work, and the reliability/cleanup phase
-need their own approved plan before implementation.
+Read `PROMT.md` for product requirements and the relevant plan in
+`docs/superpowers/plans/` before implementing a phase. Verify behavior in code:
+plans describe scope, not proof of implementation. Phases 2–5 are implemented
+(provider registry, rule-based router, filesystem-backed skills, and safe local
+ToolRegistry). Phases 6–9 have plans but are not implemented; do not assume MCP,
+the model tool loop, remaining UI, or reliability work exists. Confirm the
+relevant plan is approved before implementing a later phase.
+
+Current boundaries: `apps/api` wires providers, storage, skills, and an empty
+local tool registry. `GET /api/skills` lists skill metadata; it does not execute
+skills. Tools are registered only when explicitly enabled; registry execution
+rejects unknown and non-`safe` tools. No tool HTTP endpoint or model tool loop
+exists. Keep `packages/agent-core` independent of concrete tools/providers.
 
 ## Rules
 
