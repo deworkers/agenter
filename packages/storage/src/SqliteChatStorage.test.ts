@@ -43,14 +43,32 @@ describe("SqliteChatStorage", () => {
     expect(messages[1]?.provider).toBe("local-fast");
   });
 
+  it("uses the last user message as the chat title and persists its request context", () => {
+    const chat = storage.createChat("New chat");
+    const context = {
+      systemPrompt: "You are helpful.",
+      skill: { id: "review", content: "Review carefully." },
+      tools: [{ name: "lookup", description: "Search", inputSchema: { type: "object" } }],
+    };
+    storage.addMessage({ chatId: chat.id, role: "user", content: "First question", context });
+    storage.addMessage({ chatId: chat.id, role: "assistant", content: "Answer" });
+    storage.addMessage({ chatId: chat.id, role: "user", content: "Second\nquestion" });
+
+    expect(storage.listChats()[0]?.title).toBe("Second question");
+    expect(storage.getChat(chat.id)?.title).toBe("Second question");
+    expect(storage.listMessages(chat.id)[0]?.context).toEqual(context);
+  });
+
   it("deletes a chat and cascades its messages", () => {
     const chat = storage.createChat("My chat");
-    storage.addMessage({ chatId: chat.id, role: "user", content: "hi" });
+    storage.addMessage({ chatId: chat.id, role: "user", content: "hi", context: { systemPrompt: "Base", tools: [] } });
 
     storage.deleteChat(chat.id);
 
     expect(storage.getChat(chat.id)).toBeUndefined();
     expect(storage.listMessages(chat.id)).toEqual([]);
+    const db = (storage as unknown as { db: DatabaseSync }).db;
+    expect(db.prepare("SELECT COUNT(*) AS count FROM message_contexts").get()).toMatchObject({ count: 0 });
   });
 
   it("records a run linked to a message", () => {
@@ -188,10 +206,13 @@ describe("SqliteChatStorage", () => {
     const filePath = `./.tmp-test-${Date.now()}.db`;
     const first = new SqliteChatStorage(filePath);
     const chat = first.createChat("Persisted chat");
+    const context = { systemPrompt: "Base", tools: [] };
+    first.addMessage({ chatId: chat.id, role: "user", content: "Saved question", context });
     first.close();
 
     const second = new SqliteChatStorage(filePath);
-    expect(second.getChat(chat.id)?.title).toBe("Persisted chat");
+    expect(second.getChat(chat.id)?.title).toBe("Saved question");
+    expect(second.listMessages(chat.id)[0]?.context).toEqual(context);
     second.close();
 
     unlinkSync(filePath);

@@ -37,12 +37,14 @@ export class SqliteChatStorage implements ChatStorage {
 
   listChats(): Chat[] {
     const rows = this.db
-      .prepare(`SELECT id, title, created_at, updated_at FROM chats ORDER BY updated_at DESC`)
+      .prepare(`SELECT chats.id, COALESCE((SELECT trim(replace(replace(content, char(10), ' '), char(13), ' '))
+        FROM messages WHERE chat_id = chats.id AND role = 'user' ORDER BY rowid DESC LIMIT 1), chats.title) AS title,
+        chats.created_at, chats.updated_at FROM chats ORDER BY chats.updated_at DESC`)
       .all() as Array<{ id: string; title: string; created_at: string; updated_at: string }>;
 
     return rows.map((row) => ({
       id: row.id,
-      title: row.title,
+      title: row.title.replace(/\s+/g, " ").trim(),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
@@ -50,12 +52,14 @@ export class SqliteChatStorage implements ChatStorage {
 
   getChat(id: string): Chat | undefined {
     const row = this.db
-      .prepare(`SELECT id, title, created_at, updated_at FROM chats WHERE id = ?`)
+      .prepare(`SELECT chats.id, COALESCE((SELECT trim(replace(replace(content, char(10), ' '), char(13), ' '))
+        FROM messages WHERE chat_id = chats.id AND role = 'user' ORDER BY rowid DESC LIMIT 1), chats.title) AS title,
+        chats.created_at, chats.updated_at FROM chats WHERE chats.id = ?`)
       .get(id) as { id: string; title: string; created_at: string; updated_at: string } | undefined;
 
     if (!row) return undefined;
 
-    return { id: row.id, title: row.title, createdAt: row.created_at, updatedAt: row.updated_at };
+    return { id: row.id, title: row.title.replace(/\s+/g, " ").trim(), createdAt: row.created_at, updatedAt: row.updated_at };
   }
 
   deleteChat(id: string): void {
@@ -69,8 +73,9 @@ export class SqliteChatStorage implements ChatStorage {
   listMessages(chatId: string): StoredMessage[] {
     const rows = this.db
       .prepare(
-        `SELECT id, chat_id, role, content, provider, model, created_at
-         FROM messages WHERE chat_id = ? ORDER BY rowid ASC`
+        `SELECT messages.id, chat_id, role, content, provider, model, created_at, message_contexts.payload AS context_json
+         FROM messages LEFT JOIN message_contexts ON message_contexts.message_id = messages.id
+         WHERE chat_id = ? ORDER BY messages.rowid ASC`
       )
       .all(chatId) as Array<{
         id: string;
@@ -80,6 +85,7 @@ export class SqliteChatStorage implements ChatStorage {
         provider: string | null;
         model: string | null;
         created_at: string;
+        context_json: string | null;
       }>;
 
     return rows.map((row) => ({
@@ -90,10 +96,12 @@ export class SqliteChatStorage implements ChatStorage {
       provider: row.provider,
       model: row.model,
       createdAt: row.created_at,
+      ...(row.context_json ? { context: JSON.parse(row.context_json) as StoredMessage["context"] } : {}),
     }));
   }
 
   addMessage(input: NewMessageInput): StoredMessage {
+    const contextJson = input.context ? JSON.stringify(input.context) : undefined;
     const message: StoredMessage = {
       id: randomUUID(),
       chatId: input.chatId,
@@ -102,6 +110,7 @@ export class SqliteChatStorage implements ChatStorage {
       provider: input.provider ?? null,
       model: input.model ?? null,
       createdAt: new Date().toISOString(),
+      ...(input.context ? { context: input.context } : {}),
     };
 
     this.db
@@ -118,6 +127,11 @@ export class SqliteChatStorage implements ChatStorage {
         message.model,
         message.createdAt
       );
+
+    if (contextJson) {
+      this.db.prepare(`INSERT INTO message_contexts (message_id, payload) VALUES (?, ?)`).run(message.id, contextJson);
+    }
+    if (input.role === "user") this.touchChat(input.chatId);
 
     return message;
   }

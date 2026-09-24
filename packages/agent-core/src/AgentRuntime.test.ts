@@ -97,6 +97,52 @@ const routingConfig: RoutingConfig = {
 };
 
 describe("AgentRuntime.runTurn", () => {
+  it("advertises only allowed tools and never executes a tool outside that set", async () => {
+    const storage = fakeStorage();
+    const requests: string[][] = [];
+    const provider: LlmProvider = {
+      ...fakeProvider("fake", "fake-model", []),
+      supportsTools: () => true,
+      async *chat(request) {
+        requests.push(request.tools?.map(({ name }) => name) ?? []);
+        yield { type: "tool.call", call: { id: "c1", name: "blocked", arguments: {} } };
+        yield { type: "done" };
+      },
+    };
+    const toolRuntime: AgentToolRuntime = {
+      listTools: () => ["allowed", "blocked"].map((name) => ({ name, description: name, inputSchema: {} })),
+      execute: vi.fn(async () => "should not run"),
+    };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig), { toolRuntime });
+    const events = [];
+    for await (const event of runtime.runTurn("chat-1", "hi", { allowedToolNames: ["allowed"] })) events.push(event);
+
+    expect(requests).toEqual([["allowed"]]);
+    expect(events.find((event) => event.type === "run.context")).toMatchObject({ context: { tools: [{ name: "allowed" }] } });
+    expect(events.at(-1)?.type).toBe("run.error");
+    expect(toolRuntime.execute).not.toHaveBeenCalled();
+  });
+
+  it("stores and streams the exact skill and advertised tools for the user turn", async () => {
+    const storage = fakeStorage();
+    const tool = { name: "lookup", description: "Search", inputSchema: { type: "object" } };
+    const provider: LlmProvider = {
+      ...fakeProvider("fake", "fake-model", [{ type: "done" }]),
+      supportsTools: () => true,
+    };
+    const runtime = new AgentRuntime(
+      registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig),
+      { systemPrompt: "Base instruction", toolRuntime: { listTools: () => [tool], execute: vi.fn() } }
+    );
+
+    const events = [];
+    for await (const event of runtime.runTurn("chat-1", "hi", { activeSkillId: "review", activeSkillContent: "Review carefully" })) events.push(event);
+
+    const context = { systemPrompt: "Base instruction", skill: { id: "review", content: "Review carefully" }, tools: [tool] };
+    expect(storage.addMessage).toHaveBeenCalledWith(expect.objectContaining({ role: "user", context }));
+    expect(events[1]).toEqual({ type: "run.context", context });
+  });
+
   it("uses the registry's default provider when no options are given", async () => {
     const storage = fakeStorage();
     const provider = fakeProvider("fake", "fake-model", [
@@ -113,7 +159,7 @@ describe("AgentRuntime.runTurn", () => {
       events.push(event);
     }
 
-    expect(events).toEqual([
+    expect(events.filter((event) => event.type !== "run.context")).toEqual([
       { type: "run.started", provider: "fake", model: "fake-model" },
       { type: "text.delta", text: "Hel" },
       { type: "text.delta", text: "lo!" },
@@ -223,7 +269,7 @@ describe("AgentRuntime.runTurn", () => {
       events.push(event);
     }
 
-    expect(events).toEqual([
+    expect(events.filter((event) => event.type !== "run.context")).toEqual([
       { type: "run.started", provider: "fake", model: "fake-model" },
       { type: "run.error", message: "Provider request failed." },
     ]);
@@ -251,7 +297,7 @@ describe("AgentRuntime.runTurn", () => {
     const events = [];
     for await (const event of runtime.runTurn("chat-1", "hi")) events.push(event);
 
-    expect(events).toEqual([
+    expect(events.filter((event) => event.type !== "run.context")).toEqual([
       { type: "run.started", provider: "fake", model: "fake-model" },
       { type: "run.error", message: "Provider request failed." },
     ]);
@@ -277,7 +323,7 @@ describe("AgentRuntime.runTurn", () => {
     const events = [];
     for await (const event of runtime.runTurn("chat-1", "hi")) events.push(event);
 
-    expect(events).toEqual([
+    expect(events.filter((event) => event.type !== "run.context")).toEqual([
       { type: "run.started", provider: "fake", model: "fake-model" },
       { type: "run.error", message: "Tool calls are not enabled for this runtime." },
     ]);
@@ -310,11 +356,12 @@ describe("AgentRuntime.runTurn", () => {
     const events = [];
     for await (const event of runtime.runTurn("chat-1", "hi", { mode: "manual" })) events.push(event);
     expect(requestTools).toBeUndefined();
+    expect(events[1]).toMatchObject({ type: "run.context", context: { tools: [] } });
     expect(toolRuntime.execute).not.toHaveBeenCalled();
     expect(events.at(-1)).toEqual({ type: "run.error", message: "Tool calls are not enabled for this runtime." });
   });
 
-  it("forwards activeSkillContent into the built context as an extra system message", async () => {
+  it("forwards activeSkillContent inside a single leading system message", async () => {
     const storage = fakeStorage();
     let capturedMessages: unknown;
     const provider: LlmProvider = {
@@ -340,8 +387,7 @@ describe("AgentRuntime.runTurn", () => {
     }
 
     expect(capturedMessages).toEqual([
-      { role: "system", content: "You are helpful." },
-      { role: "system", content: "# Code Review\n\nInspect correctness." },
+      { role: "system", content: "You are helpful.\n\n# Code Review\n\nInspect correctness." },
       { role: "user", content: "review this" },
     ]);
   });
@@ -372,7 +418,7 @@ describe("AgentRuntime.runTurn", () => {
     const events = [];
     for await (const event of runtime.runTurn("chat-1", "hi")) events.push(event);
 
-    expect(events.map(({ type }) => type)).toEqual(["run.started", "tool.started", "tool.completed", "text.delta", "run.completed"]);
+    expect(events.map(({ type }) => type)).toEqual(["run.started", "run.context", "tool.started", "tool.completed", "text.delta", "run.completed"]);
     expect(requests[0]?.tools).toEqual(toolRuntime.listTools());
     expect(requests[1]?.messages.slice(-2)).toEqual([
       { role: "assistant", content: null, toolCalls: [{ id: "c1", name: "lookup", arguments: { q: "x" } }] },

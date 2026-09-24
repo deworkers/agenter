@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentEvent, Chat, ChatStorage, StoredMessage } from "@agenter/agent-core";
 import type { SkillRegistry } from "@agenter/skills";
+import { ToolRegistry } from "@agenter/tools";
 import { ChatService } from "./ChatService.js";
 
 function fakeStorage(chats: Chat[] = [], messagesByChat: Record<string, StoredMessage[]> = {}): ChatStorage {
@@ -42,6 +43,24 @@ function fakeSkillRegistry(content: Record<string, string> = {}): SkillRegistry 
 }
 
 describe("ChatService", () => {
+  it("disables MCP by default and includes only selected ready servers alongside local tools", async () => {
+    const registry = new ToolRegistry();
+    for (const [name, source] of [
+      ["local", { kind: "local" }],
+      ["files__read", { kind: "mcp", serverId: "files" }],
+      ["search__find", { kind: "mcp", serverId: "search" }],
+    ] as const) {
+      registry.register({ name, source, description: name, inputSchema: {}, safety: "safe", execute: vi.fn() });
+    }
+    const runtime = fakeRuntime([]);
+    const service = new ChatService(fakeStorage(), runtime as never, fakeSkillRegistry(), registry);
+    for await (const event of service.sendMessage("c1", "first")) void event;
+    for await (const event of service.sendMessage("c1", "second", { mcpServerIds: ["files"] })) void event;
+
+    expect(runtime.runTurn).toHaveBeenNthCalledWith(1, "c1", "first", { allowedToolNames: ["local"] });
+    expect(runtime.runTurn).toHaveBeenNthCalledWith(2, "c1", "second", { allowedToolNames: ["files__read", "local"] });
+  });
+
   it("creates a chat with a default title when none is given", () => {
     const storage = fakeStorage();
     const service = new ChatService(storage, fakeRuntime([]) as never, fakeSkillRegistry());
@@ -106,7 +125,7 @@ describe("ChatService", () => {
     }
 
     expect(received).toEqual(events);
-    expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello", {});
+    expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello", { allowedToolNames: [] });
   });
 
   it("forwards providerId, mode, and routingContext options to AgentRuntime.runTurn when no skillId is given", async () => {
@@ -120,7 +139,7 @@ describe("ChatService", () => {
       received.push(event);
     }
 
-    expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello", options);
+    expect(runtime.runTurn).toHaveBeenCalledWith("c1", "hello", { ...options, allowedToolNames: [] });
   });
 
   it("resolves skillId into activeSkillContent and sets routingContext.activeSkill", async () => {
@@ -140,6 +159,8 @@ describe("ChatService", () => {
     expect(skills.getContent).toHaveBeenCalledWith("code-review");
     expect(runtime.runTurn).toHaveBeenCalledWith("c1", "review this", {
       mode: "auto",
+      allowedToolNames: [],
+      activeSkillId: "code-review",
       activeSkillContent: "# Code Review\n\nInspect correctness.",
       routingContext: { activeSkill: "code-review" },
     });
@@ -162,6 +183,8 @@ describe("ChatService", () => {
 
     expect(runtime.runTurn).toHaveBeenCalledWith("c1", "review this", {
       mode: "auto",
+      allowedToolNames: [],
+      activeSkillId: "code-review",
       activeSkillContent: "# Code Review",
       routingContext: { toolsRequired: true, activeSkill: "code-review" },
     });

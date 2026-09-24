@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import type { Tool, ToolRegistry } from "@agenter/tools";
 import type { McpServerConfig, McpServerStatus } from "./types.js";
 
@@ -46,11 +47,13 @@ export class McpManager {
   async start(config: Record<string, McpServerConfig>): Promise<void> {
     for (const [serverId, serverConfig] of Object.entries(config)) {
       const client = new Client({ name: "agenter", version: "0.1.0" });
-      const transport = new StdioClientTransport({
-        command: serverConfig.command,
-        args: serverConfig.args,
-        env: serverConfig.env,
-      });
+      const transport = serverConfig.transport === "sse"
+        ? new SSEClientTransport(new URL(serverConfig.url))
+        : new StdioClientTransport({
+          command: serverConfig.command,
+          args: serverConfig.args,
+          env: serverConfig.env,
+        });
       try {
         await client.connect(transport);
         const response = await client.listTools();

@@ -316,10 +316,12 @@ describe("loadConfig", () => {
       try {
         const cfg: AppConfig = loadConfig();
         expect(cfg.defaultProviderId).toBe("local");
-        expect(cfg.providers.filter(({ id }) => id !== "local").map(({ id, baseUrl, model }) => ({ id, baseUrl, model }))).toEqual([
-          { id: "api-smart", baseUrl: "https://api.openai.com/v1", model: "gpt-4.1" },
-          { id: "api-fast", baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
+        const remoteProviders = cfg.providers.filter(({ id }) => id !== "local");
+        expect(remoteProviders.map(({ id, baseUrl }) => ({ id, baseUrl }))).toEqual([
+          { id: "api-smart", baseUrl: "https://api.openai.com/v1" },
+          { id: "api-fast", baseUrl: "https://api.openai.com/v1" },
         ]);
+        expect(remoteProviders.every(({ model }) => typeof model === "string" && model.trim().length > 0)).toBe(true);
       } finally {
         if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
         else process.env.OPENAI_API_KEY = previousKey;

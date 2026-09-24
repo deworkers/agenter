@@ -48,7 +48,23 @@ describe("buildContext", () => {
 });
 
 describe("buildContext with an active skill", () => {
-  it("appends the skill's content as an extra system message before the current message", () => {
+  it("keeps base instructions and skill content in a single leading system message", () => {
+    const result = buildContext({
+      systemPrompt: "You are a helpful assistant.",
+      activeSkillContent: "# Code Review\n\nInspect correctness.",
+      history: [storedMessage({ id: "m1", role: "user", content: "earlier question" })],
+      currentMessage: "review this diff",
+    });
+
+    expect(result).toEqual([
+      { role: "system", content: "You are a helpful assistant.\n\n# Code Review\n\nInspect correctness." },
+      { role: "user", content: "earlier question" },
+      { role: "user", content: "review this diff" },
+    ]);
+    expect(result.filter((message) => message.role === "system")).toHaveLength(1);
+  });
+
+  it("includes the skill in the leading system message before the current message", () => {
     const result = buildContext({
       systemPrompt: "You are a helpful assistant.",
       activeSkillContent: "# Code Review\n\nInspect correctness.",
@@ -57,8 +73,7 @@ describe("buildContext with an active skill", () => {
     });
 
     expect(result).toEqual([
-      { role: "system", content: "You are a helpful assistant." },
-      { role: "system", content: "# Code Review\n\nInspect correctness." },
+      { role: "system", content: "You are a helpful assistant.\n\n# Code Review\n\nInspect correctness." },
       { role: "user", content: "review this diff" },
     ]);
   });

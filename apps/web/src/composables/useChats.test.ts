@@ -5,6 +5,21 @@ import { useChats } from "./useChats.js";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("sending with a selected provider", () => {
+  it("updates the chat title and stores streamed context under the user message", async () => {
+    const context = { systemPrompt: "Base", skill: { id: "review", content: "Review" }, tools: [] };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response([
+      'data: {"type":"run.started","provider":"local","model":"qwen"}\n\n',
+      `data: ${JSON.stringify({ type: "run.context", context })}\n\n`,
+      'data: {"type":"run.completed"}\n\n',
+    ].join(""))));
+    const state = useChats();
+    state.activeChat.value = { id: "c1", title: "Old", createdAt: "", updatedAt: "" };
+    state.chats.value = [state.activeChat.value];
+    await state.sendMessage("New\nquestion", { mode: "auto", skillId: "review" });
+    expect(state.activeChat.value?.title).toBe("New question");
+    expect(state.chats.value[0]?.title).toBe("New question");
+    expect(state.messages.value[0]?.context).toEqual(context);
+  });
   it("sends the selected provider to the API and labels the reply from run.started", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response([
       'data: {"type":"run.started","provider":"code","model":"code-model"}\n\n',
@@ -74,13 +89,15 @@ describe("sending with a selected provider", () => {
   });
 
   it("restores saved provider and model when a chat is reopened", async () => {
+    const context = { systemPrompt: "Base", skill: { id: "review", content: "Review" }, tools: [] };
+    const user = { id: "m0", chatId: "c1", role: "user", content: "Question", provider: null, model: null, createdAt: "2026-09-24T00:00:00Z", context };
     const stored = { id: "m1", chatId: "c1", role: "assistant", content: "Saved", provider: "local", model: "qwen", createdAt: "2026-09-24T00:00:00Z" };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
-      chat: { id: "c1", title: "Chat", createdAt: "", updatedAt: "" }, messages: [stored],
+      chat: { id: "c1", title: "Question", createdAt: "", updatedAt: "" }, messages: [user, stored],
     })));
     const state = useChats();
     await state.openChat("c1");
-    expect(state.messages.value).toMatchObject([{ content: "Saved", provider: "local", model: "qwen" }]);
+    expect(state.messages.value).toMatchObject([{ content: "Question", context }, { content: "Saved", provider: "local", model: "qwen" }]);
   });
 
   it("reactively exposes text deltas before the stream completes", async () => {

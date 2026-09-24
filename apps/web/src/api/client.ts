@@ -1,5 +1,5 @@
 // apps/web/src/api/client.ts
-import type { AgentEvent, Chat, StoredMessage, ProvidersResponse, SkillsResponse, McpResponse, SendMessageOptions } from "./types.js";
+import type { AgentEvent, Chat, StoredMessage, ProvidersResponse, SkillsResponse, McpResponse, NewSkillInput, SkillSummary, SendMessageOptions } from "./types.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -40,6 +40,11 @@ function decodeEvent(value: unknown): AgentEvent {
     case "run.started":
       if (typeof value.provider === "string" && typeof value.model === "string") return value as unknown as AgentEvent;
       break;
+    case "run.context":
+      if (isRecord(value.context) && typeof value.context.systemPrompt === "string" && Array.isArray(value.context.tools) &&
+        value.context.tools.every((tool: unknown) => isRecord(tool) && typeof tool.name === "string" && typeof tool.description === "string" && isRecord(tool.inputSchema)) &&
+        (value.context.skill === undefined || (isRecord(value.context.skill) && typeof value.context.skill.id === "string" && typeof value.context.skill.content === "string"))) return value as unknown as AgentEvent;
+      break;
     case "text.delta":
       if (typeof value.text === "string") return value as unknown as AgentEvent;
       break;
@@ -76,6 +81,23 @@ export async function listProviders(): Promise<ProvidersResponse> {
 
 export async function listSkills(): Promise<SkillsResponse> {
   return decodeSkills(await json<unknown>(await fetch("/api/skills")));
+}
+
+export async function createSkill(input: NewSkillInput): Promise<SkillSummary> {
+  const response = await fetch("/api/skills", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: unknown } | null;
+    throw new Error(typeof body?.error === "string" ? body.error : `Request failed: ${response.status} ${response.statusText}`);
+  }
+  const created = await response.json() as unknown;
+  if (!isRecord(created) || typeof created.id !== "string" || typeof created.name !== "string" || typeof created.description !== "string") {
+    throw new Error("Invalid skill response");
+  }
+  return created as unknown as SkillSummary;
 }
 
 export async function listMcp(): Promise<McpResponse> {

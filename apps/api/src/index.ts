@@ -40,7 +40,7 @@ await mcpManager.start(mcpConfig);
 const runtime = new AgentRuntime(registry, storage, router, {
   toolRuntime: createAgentToolRuntime(tools),
 });
-const chatService = new ChatService(storage, runtime, skillRegistry);
+const chatService = new ChatService(storage, runtime, skillRegistry, tools);
 
 const app = express();
 app.locals.tools = tools;

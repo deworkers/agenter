@@ -36,6 +36,13 @@ export function useChats() {
   async function sendMessage(content: string, options: SendMessageOptions = {}): Promise<void> {
     if (!activeChat.value || isStreaming.value) return;
     const chatId = activeChat.value.id;
+    const title = content.trim().replace(/\s+/g, " ");
+    activeChat.value.title = title;
+    const listed = chats.value.find((chat) => chat.id === chatId);
+    if (listed) {
+      listed.title = title;
+      chats.value = [listed, ...chats.value.filter((chat) => chat.id !== chatId)];
+    }
     messages.value.push({
       id: `local-${Date.now()}`,
       chatId,
@@ -45,6 +52,7 @@ export function useChats() {
       model: null,
       createdAt: new Date().toISOString(),
     });
+    const user = messages.value.at(-1)!;
 
     const assistantMessage: DisplayMessage = {
       id: `local-${Date.now()}-assistant`,
@@ -66,6 +74,8 @@ export function useChats() {
         if (event.type === "run.started") {
           assistant.provider = event.provider;
           assistant.model = event.model;
+        } else if (event.type === "run.context") {
+          user.context = event.context;
         } else if (event.type === "text.delta") {
           assistant.content += event.text;
         } else if (event.type === "tool.started") {

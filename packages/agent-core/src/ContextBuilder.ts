@@ -10,12 +10,9 @@ export interface BuildContextInput {
 export function buildContext(input: BuildContextInput): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
-  if (input.systemPrompt.length > 0) {
-    messages.push({ role: "system", content: input.systemPrompt });
-  }
-
-  if (input.activeSkillContent) {
-    messages.push({ role: "system", content: input.activeSkillContent });
+  const systemContent = [input.systemPrompt, input.activeSkillContent].filter(Boolean).join("\n\n");
+  if (systemContent.length > 0) {
+    messages.push({ role: "system", content: systemContent });
   }
 
   for (const stored of input.history) {

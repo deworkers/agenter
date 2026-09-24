@@ -5,6 +5,7 @@ import { McpManager } from "./McpManager.js";
 const sdk = vi.hoisted(() => ({
   clients: [] as Array<{ connect: ReturnType<typeof vi.fn>; listTools: ReturnType<typeof vi.fn>; callTool: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }>,
   transports: [] as Array<{ command: string; args: string[]; options: unknown }>,
+  sseUrls: [] as string[],
   tools: [] as unknown[],
   callResult: { content: [{ type: "text", text: "ok" }] } as unknown,
   connectErrors: new Map<number, Error>(),
@@ -46,9 +47,16 @@ vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
   },
 }));
 
+vi.mock("@modelcontextprotocol/sdk/client/sse.js", () => ({
+  SSEClientTransport: class {
+    constructor(url: URL) { sdk.sseUrls.push(url.toString()); }
+  },
+}));
+
 afterEach(() => {
   sdk.clients.length = 0;
   sdk.transports.length = 0;
+  sdk.sseUrls.length = 0;
   sdk.tools.length = 0;
   sdk.callResult = { content: [{ type: "text", text: "ok" }] };
   sdk.connectErrors.clear();
@@ -58,6 +66,35 @@ afterEach(() => {
 });
 
 describe("McpManager", () => {
+  it("connects an SSE server and registers its namespaced tools", async () => {
+    const registry = new ToolRegistry();
+    const manager = new McpManager(registry);
+    sdk.tools.push({ name: "search", description: "Search", inputSchema: { type: "object" } });
+
+    await manager.start({ remote: { transport: "sse", url: "http://127.0.0.1:8001/servers/ddg-search/sse" } });
+
+    expect(sdk.sseUrls).toEqual(["http://127.0.0.1:8001/servers/ddg-search/sse"]);
+    expect(sdk.transports).toEqual([]);
+    expect(manager.getServerStatus()).toEqual([{ id: "remote", status: "ready" }]);
+    expect(registry.get("remote__search")).toMatchObject({ safety: "safe", source: { kind: "mcp", serverId: "remote" } });
+  });
+
+  it("keeps later stdio servers available when an SSE connection fails", async () => {
+    const registry = new ToolRegistry();
+    const manager = new McpManager(registry);
+    sdk.connectErrors.set(0, new Error("unavailable"));
+    sdk.tools.push({ name: "healthy", inputSchema: { type: "object" } });
+
+    await manager.start({
+      remote: { transport: "sse", url: "http://127.0.0.1:8001/servers/ddg-search/sse" },
+      local: { command: "local-server" },
+    });
+
+    expect(manager.getServerStatus()).toEqual([{ id: "remote", status: "error" }, { id: "local", status: "ready" }]);
+    expect(registry.get("local__healthy")).toBeDefined();
+    expect(sdk.clients[0]?.close).toHaveBeenCalledOnce();
+  });
+
   it("connects over stdio, registers namespaced safe tools and invokes the MCP tool", async () => {
     const registry = new ToolRegistry();
     const manager = new McpManager(registry);

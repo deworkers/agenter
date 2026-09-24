@@ -5,13 +5,13 @@ providers:
     type: openai-compatible
     baseUrl: https://api.openai.com/v1
     apiKey: ${OPENAI_API_KEY}
-    model: gpt-4.1
+    model: gpt-6-sol
 
   api-fast:
     type: openai-compatible
     baseUrl: https://api.openai.com/v1
     apiKey: ${OPENAI_API_KEY}
-    model: gpt-4.1-mini
+    model: gpt-6-luna
 
   local:
     type: openai-compatible

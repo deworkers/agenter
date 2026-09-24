@@ -55,6 +55,41 @@ describe("loadMcpConfigFromFile", () => {
     });
   });
 
+  it("loads an SSE server URL while retaining legacy stdio configuration", () => {
+    writeFileSync(filePath, JSON.stringify({ mcpServers: {
+      remote: { transport: "sse", url: "${MCP_SSE_URL}" },
+      local: { command: "local-server", args: ["--stdio"] },
+    } }));
+
+    expect(loadMcpConfigFromFile(filePath, { MCP_SSE_URL: "http://127.0.0.1:8001/servers/ddg-search/sse" })).toEqual({
+      remote: { transport: "sse", url: "http://127.0.0.1:8001/servers/ddg-search/sse" },
+      local: { command: "local-server", args: ["--stdio"] },
+    });
+  });
+
+  it("accepts an explicit stdio transport", () => {
+    writeFileSync(filePath, '{"mcpServers":{"local":{"transport":"stdio","command":"server"}}}');
+    expect(loadMcpConfigFromFile(filePath, {})).toEqual({ local: { transport: "stdio", command: "server" } });
+  });
+
+  it.each([
+    { transport: "sse" },
+    { transport: "sse", url: "not-a-url" },
+    { transport: "sse", url: "file:///tmp/server" },
+    { transport: "sse", url: "http://user:secret@localhost/sse" },
+    { transport: "unknown", url: "http://localhost/sse" },
+  ])("rejects invalid SSE configuration without echoing its URL", (entry) => {
+    writeFileSync(filePath, JSON.stringify({ mcpServers: { remote: entry } }));
+    let message = "";
+    try {
+      loadMcpConfigFromFile(filePath, {});
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(/Invalid MCP configuration/);
+    expect(message).not.toContain("secret");
+  });
+
   it.each([
     ["root", "[]"],
     ["mcpServers", '{"mcpServers":[]}'],

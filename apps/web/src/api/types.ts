@@ -17,6 +17,16 @@ export interface SkillSummary {
   description: string;
 }
 
+export interface NewSkillInput extends SkillSummary {
+  instructions: string;
+}
+
+export interface RequestContext {
+  systemPrompt: string;
+  skill?: { id: string; content: string };
+  tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+}
+
 export interface SkillsResponse {
   skills: SkillSummary[];
 }
@@ -53,6 +63,7 @@ export interface StoredMessage {
   provider: string | null;
   model: string | null;
   createdAt: string;
+  context?: RequestContext;
 }
 
 export interface TokenUsage {
@@ -62,6 +73,7 @@ export interface TokenUsage {
 
 export type AgentEvent =
   | { type: "run.started"; provider: string; model: string }
+  | { type: "run.context"; context: RequestContext }
   | { type: "text.delta"; text: string }
   | { type: "tool.started"; tool: string; arguments: unknown }
   | { type: "tool.completed"; tool: string; result: unknown }
@@ -72,6 +84,7 @@ export interface SendMessageOptions {
   providerId?: string;
   mode?: "manual" | "auto";
   skillId?: string;
+  mcpServerIds?: string[];
 }
 
 export interface ToolActivity {

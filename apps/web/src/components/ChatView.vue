@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import type { Chat, DisplayMessage, McpServerSummary, McpToolSummary, ProviderSummary, SkillSummary } from "../api/types.js";
+import { providerPickerOptions } from "../composables/pickerOptions.js";
 import MessageInput from "./MessageInput.vue";
 import McpPanel from "./McpPanel.vue";
+import OptionPicker from "./OptionPicker.vue";
 
 const props = defineProps<{
   messages: DisplayMessage[];
@@ -15,18 +17,21 @@ const props = defineProps<{
   providersLoading: boolean;
   providersError: string | null;
   skills: SkillSummary[];
+  selectedSkillId: string;
   skillsLoading: boolean;
   skillsError: string | null;
   mcpServers: McpServerSummary[];
   mcpTools: McpToolSummary[];
+  activeMcpServerIds: string[];
   mcpLoading: boolean;
   mcpError: string | null;
 }>();
 
 const providerId = defineModel<string>("providerId", { required: true });
-const skillId = defineModel<string>("skillId", { required: true });
 const toolsOpen = ref(false);
 const messageList = ref<HTMLElement | null>(null);
+const providerOptions = computed(() => providerPickerOptions(props.providers, props.defaultProviderId));
+const activeCapabilityCount = computed(() => props.activeMcpServerIds.length + (props.selectedSkillId ? 1 : 0));
 
 const emit = defineEmits<{
   send: [content: string];
@@ -34,6 +39,9 @@ const emit = defineEmits<{
   retryProviders: [];
   retrySkills: [];
   retryMcp: [];
+  toggleMcp: [id: string];
+  toggleSkill: [id: string];
+  addSkill: [];
 }>();
 
 watch(() => props.messages, async () => {
@@ -115,9 +123,8 @@ function duration(ms: number): string {
         </svg>
         Инструменты
         <span
-          v-if="mcpTools.length"
           class="tool-count"
-        >{{ mcpTools.length }}</span>
+        >{{ activeCapabilityCount ? `${activeCapabilityCount} активн.` : 'Выкл.' }}</span>
       </button>
     </header>
 
@@ -168,12 +175,54 @@ function duration(ms: number): string {
               class="message"
               :class="message.role"
             >
-              <div
-                v-if="message.role === 'user'"
-                class="user-content"
-              >
-                {{ message.content }}
-              </div>
+              <template v-if="message.role === 'user'">
+                <div class="user-content">
+                  {{ message.content }}
+                </div>
+                <details
+                  v-if="message.context"
+                  class="request-context"
+                >
+                  <summary>
+                    <span>Контекст запроса</span>
+                    <span
+                      v-if="message.context.skill"
+                      class="context-chip"
+                    >Навык: {{ message.context.skill.id }}</span>
+                    <span
+                      v-if="message.context.tools.length"
+                      class="context-chip"
+                    >Инструменты: {{ message.context.tools.length }}</span>
+                  </summary>
+                  <div class="request-context-body">
+                    <div v-if="message.context.systemPrompt">
+                      <div class="tool-data-label">
+                        Системная инструкция
+                      </div>
+                      <pre>{{ message.context.systemPrompt }}</pre>
+                    </div>
+                    <div v-if="message.context.skill">
+                      <div class="tool-data-label">
+                        Навык · {{ message.context.skill.id }}
+                      </div>
+                      <pre>{{ message.context.skill.content }}</pre>
+                    </div>
+                    <div v-if="message.context.tools.length">
+                      <div class="tool-data-label">
+                        Доступные модели инструменты
+                      </div>
+                      <div
+                        v-for="tool in message.context.tools"
+                        :key="tool.name"
+                        class="request-tool"
+                      >
+                        <strong>{{ tool.name }}</strong><span>{{ tool.description }}</span>
+                        <pre>{{ jsonText(tool.inputSchema) }}</pre>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+              </template>
               <template v-else>
                 <div
                   v-if="message.content"
@@ -246,79 +295,30 @@ function duration(ms: number): string {
           />
           <div class="composer-controls">
             <div class="selector-group">
-              <label
-                class="selector"
-                for="provider-select"
-              >
-                <span>Модель</span>
-                <select
-                  id="provider-select"
-                  v-model="providerId"
-                  :disabled="isStreaming || providersLoading || !!providersError || !providers.length"
-                >
-                  <option value="auto">Auto · {{ defaultProviderId || 'по умолчанию' }}</option>
-                  <option
-                    v-for="provider in providers"
-                    :key="provider.id"
-                    :value="provider.id"
-                  >
-                    {{ provider.id }} · {{ provider.model }}{{ provider.id === defaultProviderId ? ' (по умолчанию)' : '' }}
-                  </option>
-                </select>
-              </label>
-              <label
-                class="selector"
-                for="skill-select"
-              >
-                <span>Навык</span>
-                <select
-                  id="skill-select"
-                  v-model="skillId"
-                  :disabled="isStreaming || skillsLoading || !!skillsError"
-                >
-                  <option value="">Без навыка</option>
-                  <option
-                    v-for="skill in skills"
-                    :key="skill.id"
-                    :value="skill.id"
-                    :title="skill.description"
-                  >
-                    {{ skill.name }}
-                  </option>
-                </select>
-              </label>
+              <OptionPicker
+                v-model="providerId"
+                label="Модель"
+                :options="providerOptions"
+                :disabled="isStreaming || providersLoading || !!providersError || !providers.length"
+                search-placeholder="Найти модель"
+                empty-text="Модель не найдена"
+              />
             </div>
             <span class="composer-hint">Enter — отправить · Shift+Enter — новая строка</span>
           </div>
         </div>
         <div
-          v-if="providersError || skillsError"
+          v-if="providersError"
           class="catalog-errors"
+          role="alert"
         >
-          <div
-            v-if="providersError"
-            role="alert"
+          Модели недоступны: {{ providersError }}
+          <button
+            type="button"
+            @click="emit('retryProviders')"
           >
-            Модели недоступны: {{ providersError }}
-            <button
-              type="button"
-              @click="emit('retryProviders')"
-            >
-              Повторить
-            </button>
-          </div>
-          <div
-            v-if="skillsError"
-            role="alert"
-          >
-            Навыки недоступны: {{ skillsError }}
-            <button
-              type="button"
-              @click="emit('retrySkills')"
-            >
-              Повторить
-            </button>
-          </div>
+            Повторить
+          </button>
         </div>
         <p class="composer-note">
           Ответы модели могут содержать ошибки. Проверяйте важные сведения.
@@ -331,10 +331,20 @@ function duration(ms: number): string {
       id="mcp-panel"
       :servers="mcpServers"
       :tools="mcpTools"
+      :active-server-ids="activeMcpServerIds"
+      :skills="skills"
+      :selected-skill-id="selectedSkillId"
+      :skills-loading="skillsLoading"
+      :skills-error="skillsError"
+      :is-streaming="isStreaming"
       :loading="mcpLoading"
       :error="mcpError"
       @close="toolsOpen = false"
       @refresh="emit('retryMcp')"
+      @toggle="(id) => emit('toggleMcp', id)"
+      @toggle-skill="(id) => emit('toggleSkill', id)"
+      @retry-skills="emit('retrySkills')"
+      @add-skill="emit('addSkill')"
     />
   </section>
 </template>

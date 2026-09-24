@@ -68,6 +68,31 @@ export function loadMcpConfigFromFile(
   const result: Record<string, McpServerConfig> = {};
   for (const [serverId, entry] of Object.entries(raw.mcpServers)) {
     if (!isObject(entry)) throw new Error(`Invalid MCP configuration: server "${serverId}" must be an object`);
+    if (entry.transport === "sse") {
+      if (typeof entry.url !== "string" || entry.command !== undefined || entry.args !== undefined || entry.env !== undefined) {
+        throw new Error(`Invalid MCP configuration: server "${serverId}" requires only an SSE url`);
+      }
+      const resolvedUrl = resolve(entry.url, env, `url for server ${serverId}`);
+      let url: URL;
+      try {
+        url = new URL(resolvedUrl);
+      } catch {
+        throw new Error(`Invalid MCP configuration: server "${serverId}" has an invalid SSE url`);
+      }
+      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+        throw new Error(`Invalid MCP configuration: server "${serverId}" must use an HTTP(S) SSE url without embedded credentials`);
+      }
+      Object.defineProperty(result, serverId, {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: { transport: "sse", url: url.toString() },
+      });
+      continue;
+    }
+    if (entry.transport !== undefined && entry.transport !== "stdio") {
+      throw new Error(`Invalid MCP configuration: server "${serverId}" has an unsupported transport`);
+    }
     if (typeof entry.command !== "string" || entry.command.length === 0) {
       throw new Error(`Invalid MCP configuration: server "${serverId}" requires a string command`);
     }
@@ -83,16 +108,17 @@ export function loadMcpConfigFromFile(
       configurable: true,
       writable: true,
       value: {
-      command: entry.command,
-      ...(entry.args === undefined ? {} : {
-        args: entry.args.map((arg, index) => resolve(arg, env, `args[${index}] for server ${serverId}`)),
-      }),
-      ...(entry.env === undefined ? {} : {
-        env: Object.fromEntries(Object.entries(entry.env).map(([key, value]) => [
-          key,
-          resolve(value as string, env, `env.${key} for server ${serverId}`),
-        ])),
-      }),
+        ...(entry.transport === "stdio" ? { transport: "stdio" } : {}),
+        command: entry.command,
+        ...(entry.args === undefined ? {} : {
+          args: entry.args.map((arg, index) => resolve(arg, env, `args[${index}] for server ${serverId}`)),
+        }),
+        ...(entry.env === undefined ? {} : {
+          env: Object.fromEntries(Object.entries(entry.env).map(([key, value]) => [
+            key,
+            resolve(value as string, env, `env.${key} for server ${serverId}`),
+          ])),
+        }),
       },
     });
   }

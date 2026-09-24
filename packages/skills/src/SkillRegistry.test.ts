@@ -76,4 +76,27 @@ describe("SkillRegistry", () => {
 
     expect(registry.list().map((s) => s.id)).toEqual(["code-review"]);
   });
+
+  it("creates a skill from form fields and makes it immediately available", () => {
+    skillsDir = mkdtempSync(path.join(tmpdir(), "agenter-skills-"));
+    const registry = new SkillRegistry(skillsDir);
+    const skill = registry.add({ id: "my-review", name: "My Review", description: "Check: code", instructions: "# Steps\nReview carefully." });
+
+    expect(skill).toEqual({ id: "my-review", name: "My Review", description: "Check: code" });
+    expect(registry.getContent("my-review")).toBe("# Steps\nReview carefully.\n");
+    const reopened = new SkillRegistry(skillsDir);
+    reopened.scan();
+    expect(reopened.list()).toEqual([skill]);
+  });
+
+  it("rejects unsafe ids and never overwrites an existing skill", () => {
+    skillsDir = mkdtempSync(path.join(tmpdir(), "agenter-skills-"));
+    const registry = new SkillRegistry(skillsDir);
+    const input = { id: "review", name: "Review", description: "Check code", instructions: "Instructions" };
+
+    expect(() => registry.add({ ...input, id: "../outside" })).toThrow();
+    registry.add(input);
+    expect(() => registry.add(input)).toThrow();
+    expect(registry.getContent("review")).toBe("Instructions\n");
+  });
 });

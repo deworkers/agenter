@@ -7,6 +7,7 @@ import type {
   ChatStorage,
   LlmMessage,
   NewToolCallInput,
+  RequestContext,
   TokenUsage,
   ToolCall,
 } from "./types.js";
@@ -24,6 +25,8 @@ export interface RunTurnOptions {
   mode?: "manual" | "auto";
   routingContext?: RoutingContext;
   activeSkillContent?: string;
+  activeSkillId?: string;
+  allowedToolNames?: readonly string[];
 }
 
 const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant.";
@@ -69,10 +72,20 @@ export class AgentRuntime {
 
   async *runTurn(chatId: string, userMessage: string, options: RunTurnOptions = {}): AsyncGenerator<AgentEvent> {
     const history = this.storage.listMessages(chatId);
-    const storedUserMessage = this.storage.addMessage({ chatId, role: "user", content: userMessage });
-    const toolDefinitions = this.toolRuntime?.listTools() ?? [];
+    const allowedToolNames = options.allowedToolNames === undefined ? undefined : new Set(options.allowedToolNames);
+    const toolDefinitions = (this.toolRuntime?.listTools() ?? [])
+      .filter(({ name }) => allowedToolNames === undefined || allowedToolNames.has(name));
+    const offeredToolNames = new Set(toolDefinitions.map(({ name }) => name));
     const providerId = this.resolveProviderId(options, toolDefinitions.length > 0);
     const provider = providerId ? this.registry.get(providerId) : this.registry.getDefault();
+    const context: RequestContext | undefined = provider ? {
+      systemPrompt: this.systemPrompt,
+      ...(options.activeSkillContent !== undefined ? {
+        skill: { id: options.activeSkillId ?? "", content: options.activeSkillContent },
+      } : {}),
+      tools: provider.supportsTools() ? toolDefinitions : [],
+    } : undefined;
+    const storedUserMessage = this.storage.addMessage({ chatId, role: "user", content: userMessage, ...(context ? { context } : {}) });
     if (!provider) {
       yield { type: "run.error", message: `Unknown provider "${providerId}"` };
       return;
@@ -85,6 +98,7 @@ export class AgentRuntime {
       currentMessage: userMessage,
     });
     yield { type: "run.started", provider: provider.id, model: provider.model };
+    yield { type: "run.context", context: context! };
 
     const startedAt = Date.now();
     const usage: TokenUsage = { promptTokens: 0, completionTokens: 0 };
@@ -119,7 +133,7 @@ export class AgentRuntime {
       let callsRecordedAsSkipped = false;
       const request = {
         messages,
-        ...(provider.supportsTools() && toolDefinitions.length > 0 ? { tools: toolDefinitions } : {}),
+        ...(context!.tools.length > 0 ? { tools: context!.tools } : {}),
       };
 
       try {
@@ -236,8 +250,9 @@ export class AgentRuntime {
       for (let index = 0; index < calls.length; index++) {
         const call = calls[index]!;
         const argsText = storedArguments(call.arguments);
-        yield { type: "tool.started", tool: call.name, arguments: call.arguments };
         try {
+          if (!offeredToolNames.has(call.name)) throw new Error(TOOL_FAILURE_MESSAGE);
+          yield { type: "tool.started", tool: call.name, arguments: call.arguments };
           const result = await this.toolRuntime.execute(call.name, call.arguments);
           const serializedResult = JSON.stringify(result);
           if (serializedResult === undefined) throw new Error(TOOL_FAILURE_MESSAGE);

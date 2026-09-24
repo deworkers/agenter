@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { onMounted, ref } from "vue";
+import type { NewSkillInput } from "./api/types.js";
 import { useChats } from "./composables/useChats.js";
 import { useProviders } from "./composables/useProviders.js";
 import { useSkills } from "./composables/useSkills.js";
 import { useMcp } from "./composables/useMcp.js";
 import Sidebar from "./components/Sidebar.vue";
 import ChatView from "./components/ChatView.vue";
+import SkillDialog from "./components/SkillDialog.vue";
 
 const { chats, activeChat, messages, isStreaming, refreshChats, newChat, openChat, removeChat, sendMessage } = useChats();
 const { providers, defaultProviderId, selectedProviderId, isLoading: providersLoading, error: providersError, refreshProviders } = useProviders();
-const { skills, selectedSkillId, isLoading: skillsLoading, error: skillsError, refreshSkills } = useSkills();
-const { servers, tools, isLoading: mcpLoading, error: mcpError, refreshMcp } = useMcp();
+const { skills, selectedSkillId, isLoading: skillsLoading, error: skillsError, isAdding: skillAdding, addError: skillAddError, refreshSkills, addSkill, toggleSkill } = useSkills();
+const { servers, tools, activeServerIds, isLoading: mcpLoading, error: mcpError, refreshMcp, toggleServer } = useMcp();
+const skillDialogOpen = ref(false);
 
 onMounted(() => {
   void refreshChats();
@@ -27,11 +30,21 @@ async function handleSend(content: string): Promise<void> {
       ? { mode: "auto" as const }
       : { mode: "manual" as const, providerId: selectedProviderId.value }),
     ...(selectedSkillId.value ? { skillId: selectedSkillId.value } : {}),
+    mcpServerIds: [...activeServerIds.value],
   });
 }
 
 async function handleDelete(id: string): Promise<void> {
   await removeChat(id);
+}
+
+async function handleAddSkill(input: NewSkillInput): Promise<void> {
+  if (await addSkill(input)) skillDialogOpen.value = false;
+}
+
+function openSkillDialog(): void {
+  skillAddError.value = null;
+  skillDialogOpen.value = true;
 }
 </script>
 
@@ -46,7 +59,6 @@ async function handleDelete(id: string): Promise<void> {
     />
     <ChatView
       v-model:provider-id="selectedProviderId"
-      v-model:skill-id="selectedSkillId"
       :messages="messages"
       :is-streaming="isStreaming"
       :active-chat="activeChat"
@@ -55,17 +67,29 @@ async function handleDelete(id: string): Promise<void> {
       :providers-loading="providersLoading"
       :providers-error="providersError"
       :skills="skills"
+      :selected-skill-id="selectedSkillId"
       :skills-loading="skillsLoading"
       :skills-error="skillsError"
       :mcp-servers="servers"
       :mcp-tools="tools"
+      :active-mcp-server-ids="activeServerIds"
       :mcp-loading="mcpLoading"
       :mcp-error="mcpError"
       @retry-providers="refreshProviders"
       @retry-skills="refreshSkills"
       @retry-mcp="refreshMcp"
+      @toggle-mcp="toggleServer"
+      @toggle-skill="toggleSkill"
       @new-chat="newChat"
       @send="handleSend"
+      @add-skill="openSkillDialog"
+    />
+    <SkillDialog
+      v-if="skillDialogOpen"
+      :saving="skillAdding"
+      :error="skillAddError"
+      @close="skillDialogOpen = false"
+      @create="handleAddSkill"
     />
   </div>
 </template>

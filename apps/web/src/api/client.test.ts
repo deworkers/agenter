@@ -1,6 +1,6 @@
 // apps/web/src/api/client.test.ts
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { listMcp, listProviders, listSkills, sendMessage } from "./client.js";
+import { createSkill, listMcp, listProviders, listSkills, sendMessage } from "./client.js";
 
 function sseResponse(events: object[]): Response {
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
@@ -10,6 +10,15 @@ function sseResponse(events: object[]): Response {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("catalogs", () => {
+  it("posts a new skill and reports validation errors", async () => {
+    const input = { id: "review", name: "Review", description: "Check code", instructions: "Review carefully" };
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ id: "review", name: "Review", description: "Check code" }, { status: 201 }))
+      .mockResolvedValueOnce(Response.json({ error: "Skill already exists" }, { status: 409 }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await createSkill(input)).toMatchObject({ id: "review" });
+    expect(fetch).toHaveBeenCalledWith("/api/skills", expect.objectContaining({ method: "POST", body: JSON.stringify(input) }));
+    await expect(createSkill(input)).rejects.toThrow("Skill already exists");
+  });
   it("decodes provider, skill and MCP metadata", async () => {
     const fetch = vi.fn()
       .mockResolvedValueOnce(Response.json({ providers: [{ id: "local", model: "qwen" }], defaultProviderId: "local" }))
@@ -45,6 +54,13 @@ describe("catalogs", () => {
 });
 
 describe("sendMessage", () => {
+  it("decodes the request context event", async () => {
+    const context = { systemPrompt: "Base", skill: { id: "review", content: "Steps" }, tools: [] };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([{ type: "run.context", context }])));
+    const events = [];
+    for await (const event of sendMessage("chat-1", "hello")) events.push(event);
+    expect(events).toEqual([{ type: "run.context", context }]);
+  });
   it("parses each SSE data line into an AgentEvent", async () => {
     vi.stubGlobal(
       "fetch",
@@ -92,11 +108,11 @@ describe("sendMessage", () => {
     vi.stubGlobal("fetch", fetch);
 
     const events = [];
-    for await (const event of sendMessage("chat-1", "read", { mode: "auto", skillId: "review" })) events.push(event);
+    for await (const event of sendMessage("chat-1", "read", { mode: "auto", skillId: "review", mcpServerIds: ["files"] })) events.push(event);
 
     expect(events).toEqual(payload);
     expect(fetch).toHaveBeenCalledWith("/api/chats/chat-1/messages", expect.objectContaining({
-      body: JSON.stringify({ content: "read", mode: "auto", skillId: "review" }),
+      body: JSON.stringify({ content: "read", mode: "auto", skillId: "review", mcpServerIds: ["files"] }),
     }));
   });
 

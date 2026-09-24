@@ -11,6 +11,12 @@ export interface ToolDefinition {
   inputSchema: Record<string, unknown>;
 }
 
+export interface RequestContext {
+  systemPrompt: string;
+  skill?: { id: string; content: string };
+  tools: ToolDefinition[];
+}
+
 export interface ToolCall { id: string; name: string; arguments: unknown }
 export interface AssistantToolCallMessage { role: "assistant"; content: string | null; toolCalls: ToolCall[] }
 export interface ToolResultMessage { role: "tool"; toolCallId: string; name: string; content: string }
@@ -50,6 +56,7 @@ export interface LlmProvider {
 
 export type AgentEvent =
   | { type: "run.started"; provider: string; model: string }
+  | { type: "run.context"; context: RequestContext }
   | { type: "text.delta"; text: string }
   | { type: "tool.started"; tool: string; arguments: unknown }
   | { type: "tool.completed"; tool: string; result: unknown }
@@ -71,6 +78,7 @@ export interface StoredMessage {
   provider: string | null;
   model: string | null;
   createdAt: string;
+  context?: RequestContext;
 }
 
 export interface NewMessageInput {
@@ -79,6 +87,7 @@ export interface NewMessageInput {
   content: string;
   provider?: string;
   model?: string;
+  context?: RequestContext;
 }
 
 export interface RunRecord {

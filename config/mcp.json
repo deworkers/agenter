@@ -1,3 +1,28 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "ddg-search": {
+      "transport": "sse",
+      "url": "http://127.0.0.1:8001/servers/ddg-search/sse"
+    },
+    "gitlab": {
+      "transport": "sse",
+      "url": "http://127.0.0.1:8001/servers/gitlab/sse"
+    },
+    "postgresql-mcp": {
+      "transport": "sse",
+      "url": "http://127.0.0.1:8001/servers/postgresql-mcp/sse"
+    },
+    "chrome-devtools": {
+      "transport": "sse",
+      "url": "http://127.0.0.1:8001/servers/chrome-devtools/sse"
+    },
+    "youtube-transcript": {
+      "transport": "sse",
+      "url": "http://127.0.0.1:8001/servers/youtube-transcript/sse"
+    },
+    "playwright": {
+      "transport": "sse",
+      "url": "http://127.0.0.1:8001/servers/playwright/sse"
+    }
+  }
 }
