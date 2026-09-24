@@ -21,6 +21,7 @@ function fakeStorage(chats: Chat[] = [], messagesByChat: Record<string, StoredMe
     listMessages: vi.fn((chatId: string) => messagesByChat[chatId] ?? []),
     addMessage: vi.fn(),
     addRun: vi.fn(),
+    completeRun: vi.fn(),
   };
 }
 
@@ -90,6 +91,8 @@ describe("ChatService", () => {
   it("delegates sendMessage to AgentRuntime.runTurn and forwards its events", async () => {
     const events: AgentEvent[] = [
       { type: "run.started", provider: "p", model: "m" },
+      { type: "tool.started", tool: "lookup", arguments: { query: "x" } },
+      { type: "tool.completed", tool: "lookup", result: { value: 1 } },
       { type: "text.delta", text: "hi" },
       { type: "run.completed" },
     ];

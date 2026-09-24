@@ -1,14 +1,12 @@
-// apps/web/src/composables/useChats.ts
 import { ref } from "vue";
 import * as client from "../api/client.js";
-import type { Chat, StoredMessage } from "../api/types.js";
+import type { Chat, DisplayMessage, SendMessageOptions } from "../api/types.js";
 
 export function useChats() {
   const chats = ref<Chat[]>([]);
   const activeChat = ref<Chat | null>(null);
-  const messages = ref<StoredMessage[]>([]);
+  const messages = ref<DisplayMessage[]>([]);
   const isStreaming = ref(false);
-  const currentModelLabel = ref<string | null>(null);
 
   async function refreshChats(): Promise<void> {
     chats.value = await client.listChats();
@@ -35,10 +33,9 @@ export function useChats() {
     await refreshChats();
   }
 
-  async function sendMessage(content: string, providerId?: string): Promise<void> {
+  async function sendMessage(content: string, options: SendMessageOptions = {}): Promise<void> {
     if (!activeChat.value || isStreaming.value) return;
     const chatId = activeChat.value.id;
-
     messages.value.push({
       id: `local-${Date.now()}`,
       chatId,
@@ -49,50 +46,53 @@ export function useChats() {
       createdAt: new Date().toISOString(),
     });
 
-    isStreaming.value = true;
-    let assistantText = "";
-    let provider: string | null = null;
-    let model: string | null = null;
-
-    try {
-      for await (const event of client.sendMessage(chatId, content, providerId)) {
-        if (event.type === "run.started") {
-          provider = event.provider;
-          model = event.model;
-          currentModelLabel.value = event.model;
-        } else if (event.type === "text.delta") {
-          assistantText += event.text;
-        } else if (event.type === "run.error") {
-          assistantText = `⚠ ${event.message}`;
-        }
-      }
-    } catch (error) {
-      assistantText = `⚠ ${error instanceof Error ? error.message : String(error)}`;
-    } finally {
-      isStreaming.value = false;
-    }
-
-    messages.value.push({
+    const assistantMessage: DisplayMessage = {
       id: `local-${Date.now()}-assistant`,
       chatId,
       role: "assistant",
-      content: assistantText,
-      provider,
-      model,
+      content: "",
+      provider: null,
+      model: null,
       createdAt: new Date().toISOString(),
-    });
+      tools: [],
+    };
+    messages.value.push(assistantMessage);
+    const assistant = messages.value.at(-1)!;
+    isStreaming.value = true;
+    const startedAt = Date.now();
+
+    try {
+      for await (const event of client.sendMessage(chatId, content, options)) {
+        if (event.type === "run.started") {
+          assistant.provider = event.provider;
+          assistant.model = event.model;
+        } else if (event.type === "text.delta") {
+          assistant.content += event.text;
+        } else if (event.type === "tool.started") {
+          assistant.tools?.push({ name: event.tool, arguments: event.arguments, status: "running" });
+        } else if (event.type === "tool.completed") {
+          const tool = assistant.tools?.findLast((item) => item.name === event.tool && item.status === "running");
+          if (tool) {
+            tool.result = event.result;
+            tool.status = "completed";
+          }
+        } else if (event.type === "run.error") {
+          assistant.error = event.message;
+          for (const tool of assistant.tools ?? []) {
+            if (tool.status === "running") tool.status = "error";
+          }
+        }
+      }
+    } catch (cause) {
+      assistant.error = cause instanceof Error ? cause.message : String(cause);
+      for (const tool of assistant.tools ?? []) {
+        if (tool.status === "running") tool.status = "error";
+      }
+    } finally {
+      assistant.durationMs = Date.now() - startedAt;
+      isStreaming.value = false;
+    }
   }
 
-  return {
-    chats,
-    activeChat,
-    messages,
-    isStreaming,
-    currentModelLabel,
-    refreshChats,
-    openChat,
-    newChat,
-    removeChat,
-    sendMessage,
-  };
+  return { chats, activeChat, messages, isStreaming, refreshChats, openChat, newChat, removeChat, sendMessage };
 }

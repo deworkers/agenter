@@ -17,6 +17,7 @@ import { McpManager } from "@agenter/mcp";
 import { loadMcpConfigFromFile } from "./mcpConfig.js";
 import { createMcpRouter } from "./routes/mcp.js";
 import { registerMcpShutdownHandlers } from "./mcpLifecycle.js";
+import { createAgentToolRuntime } from "./agentToolRuntime.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -25,18 +26,24 @@ const config = loadConfig();
 const storage = new SqliteChatStorage(config.dbPath);
 const registry = buildProviderRegistry(config);
 const router = new ProviderRouter(config.routing);
-const runtime = new AgentRuntime(registry, storage, router);
 
 const skillsDir = path.resolve(__dirname, "../../../skills");
 const skillRegistry = new SkillRegistry(skillsDir);
 skillRegistry.scan();
 
+const tools = buildLocalToolRegistry();
+const mcpManager = new McpManager(tools);
+const mcpConfigPath = path.resolve(__dirname, "../../../config/mcp.json");
+const mcpConfig = loadMcpConfigFromFile(mcpConfigPath);
+await mcpManager.start(mcpConfig);
+
+const runtime = new AgentRuntime(registry, storage, router, {
+  toolRuntime: createAgentToolRuntime(tools),
+});
 const chatService = new ChatService(storage, runtime, skillRegistry);
 
 const app = express();
-const tools = buildLocalToolRegistry();
 app.locals.tools = tools;
-const mcpManager = new McpManager(tools);
 app.use(express.json());
 
 app.use("/api/chats", createChatsRouter(chatService));
@@ -44,10 +51,6 @@ app.use("/api/chats", createMessagesRouter(chatService));
 app.use("/api/providers", createProvidersRouter(registry));
 app.use("/api/skills", createSkillsRouter(skillRegistry));
 app.use("/api/mcp", createMcpRouter(mcpManager));
-
-const mcpConfigPath = path.resolve(__dirname, "../../../config/mcp.json");
-const mcpConfig = loadMcpConfigFromFile(mcpConfigPath);
-await mcpManager.start(mcpConfig);
 
 const server = app.listen(config.port, () => {
   console.log(`agenter api listening on http://localhost:${config.port}`);

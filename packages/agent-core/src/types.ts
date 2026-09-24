@@ -11,17 +11,31 @@ export interface ToolDefinition {
   inputSchema: Record<string, unknown>;
 }
 
+export interface ToolCall { id: string; name: string; arguments: unknown }
+export interface AssistantToolCallMessage { role: "assistant"; content: string | null; toolCalls: ToolCall[] }
+export interface ToolResultMessage { role: "tool"; toolCallId: string; name: string; content: string }
+export type LlmMessage = ChatMessage | AssistantToolCallMessage | ToolResultMessage;
+export interface AgentToolRuntime {
+  listTools(): ToolDefinition[];
+  execute(name: string, args: unknown): Promise<unknown>;
+}
+export type ToolCallStatus = "success" | "error" | "skipped";
+export interface NewToolCallInput { toolName: string; arguments: string; result: string | null; status: ToolCallStatus }
+export interface ToolCallRecord extends NewToolCallInput { id: string; runId: string; createdAt: string }
+
 export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
 }
 
 export interface LlmRequest {
-  messages: ChatMessage[];
+  messages: LlmMessage[];
+  tools?: ToolDefinition[];
 }
 
 export type LlmEvent =
   | { type: "text.delta"; text: string }
+  | { type: "tool.call"; call: ToolCall }
   | { type: "done"; usage?: TokenUsage }
   | { type: "error"; message: string };
 
@@ -37,6 +51,8 @@ export interface LlmProvider {
 export type AgentEvent =
   | { type: "run.started"; provider: string; model: string }
   | { type: "text.delta"; text: string }
+  | { type: "tool.started"; tool: string; arguments: unknown }
+  | { type: "tool.completed"; tool: string; result: unknown }
   | { type: "run.completed"; usage?: TokenUsage }
   | { type: "run.error"; message: string };
 
@@ -100,4 +116,9 @@ export interface ChatStorage {
   addMessage(input: NewMessageInput): StoredMessage;
 
   addRun(input: NewRunInput): RunRecord;
+  completeRun(
+    input: NewRunInput,
+    toolCalls: NewToolCallInput[],
+    assistantMessage?: NewMessageInput
+  ): RunRecord;
 }

@@ -9,13 +9,14 @@ const catalog = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("provider selection", () => {
-  it("loads the API catalog and selects its default", async () => {
+  it("loads the API catalog and selects Auto while retaining the configured default", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(catalog)));
     const state = useProviders();
     expect(state.isLoading.value).toBe(true);
     await state.refreshProviders();
     expect(state.providers.value).toEqual(catalog.providers);
-    expect(state.selectedProviderId.value).toBe("code");
+    expect(state.defaultProviderId.value).toBe("code");
+    expect(state.selectedProviderId.value).toBe("auto");
     expect(state.isLoading.value).toBe(false);
     expect(state.error.value).toBeNull();
   });
@@ -40,7 +41,7 @@ describe("provider selection", () => {
     expect(state.isLoading.value).toBe(false);
     await state.refreshProviders();
     expect(state.error.value).toBeNull();
-    expect(state.selectedProviderId.value).toBe("code");
+    expect(state.selectedProviderId.value).toBe("auto");
   });
 
   it("does not allow sending with an unavailable default", async () => {
@@ -49,5 +50,16 @@ describe("provider selection", () => {
     await state.refreshProviders();
     expect(state.error.value).toBeTruthy();
     expect(state.selectedProviderId.value).toBe("");
+  });
+
+  it("resets a removed provider selection to Auto on refresh", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(Response.json(catalog))
+      .mockResolvedValueOnce(Response.json({ providers: [catalog.providers[1]], defaultProviderId: "code" })));
+    const state = useProviders();
+    await state.refreshProviders();
+    state.selectedProviderId.value = "fast";
+    await state.refreshProviders();
+    expect(state.selectedProviderId.value).toBe("auto");
   });
 });

@@ -19,8 +19,8 @@ export function useProviders() {
       }
       providers.value = catalog.providers;
       defaultProviderId.value = catalog.defaultProviderId;
-      if (!catalog.providers.some((provider) => provider.id === selectedProviderId.value)) {
-        selectedProviderId.value = catalog.defaultProviderId;
+      if (selectedProviderId.value !== "auto" && !catalog.providers.some((provider) => provider.id === selectedProviderId.value)) {
+        selectedProviderId.value = "auto";
       }
     } catch (cause) {
       providers.value = [];

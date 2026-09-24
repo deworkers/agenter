@@ -6,6 +6,7 @@ import type {
   ChatStorage,
   NewMessageInput,
   NewRunInput,
+  NewToolCallInput,
   RunRecord,
   StoredMessage,
 } from "@agenter/agent-core";
@@ -154,5 +155,43 @@ export class SqliteChatStorage implements ChatStorage {
       );
 
     return run;
+  }
+
+  completeRun(
+    input: NewRunInput,
+    toolCalls: NewToolCallInput[],
+    assistantMessage?: NewMessageInput
+  ): RunRecord {
+    this.db.exec("BEGIN");
+    try {
+      if (assistantMessage) {
+        this.addMessage(assistantMessage);
+        this.touchChat(assistantMessage.chatId);
+      }
+
+      const run = this.addRun(input);
+      const insertToolCall = this.db.prepare(
+        `INSERT INTO tool_calls (id, run_id, tool_name, arguments, result, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+
+      for (const call of toolCalls) {
+        insertToolCall.run(
+          randomUUID(),
+          run.id,
+          call.toolName,
+          call.arguments,
+          call.result,
+          call.status,
+          new Date().toISOString()
+        );
+      }
+
+      this.db.exec("COMMIT");
+      return run;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 }

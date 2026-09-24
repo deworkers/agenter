@@ -1,4 +1,4 @@
-import type { LlmEvent, LlmProvider, LlmRequest } from "@agenter/agent-core";
+import type { LlmEvent, LlmMessage, LlmProvider, LlmRequest, ToolCall } from "@agenter/agent-core";
 
 export interface OpenAICompatibleProviderConfig {
   id: string;
@@ -9,7 +9,7 @@ export interface OpenAICompatibleProviderConfig {
 }
 
 interface ChatCompletionChunk {
-  choices: Array<{ delta: { content?: string }; finish_reason?: string | null }>;
+  choices: Array<{ delta: { content?: string; tool_calls?: Array<{ index: number; id?: string; function?: { name?: string; arguments?: string } }> }; finish_reason?: string | null }>;
   usage?: { prompt_tokens: number; completion_tokens: number };
 }
 
@@ -36,6 +36,16 @@ function statusText(response: Response): string {
   return response.statusText || STATUS_TEXTS[response.status] || "";
 }
 
+function toWireMessage(message: LlmMessage): Record<string, unknown> {
+  if (message.role === "assistant" && "toolCalls" in message) {
+    return { role: "assistant", content: message.content, tool_calls: message.toolCalls.map((call) => ({
+      id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+    })) };
+  }
+  if (message.role === "tool") return { role: "tool", tool_call_id: message.toolCallId, name: message.name, content: message.content };
+  return { role: message.role, content: message.content };
+}
+
 export class OpenAICompatibleProvider implements LlmProvider {
   readonly id: string;
   readonly model: string;
@@ -52,7 +62,7 @@ export class OpenAICompatibleProvider implements LlmProvider {
   }
 
   supportsTools(): boolean {
-    return false;
+    return true;
   }
 
   supportsVision(): boolean {
@@ -75,7 +85,8 @@ export class OpenAICompatibleProvider implements LlmProvider {
         },
         body: JSON.stringify({
           model: this.model,
-          messages: request.messages,
+          messages: request.messages.map(toWireMessage),
+          ...(request.tools ? { tools: request.tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })) } : {}),
           stream: true,
         }),
       });
@@ -102,6 +113,10 @@ export class OpenAICompatibleProvider implements LlmProvider {
     const decoder = new TextDecoder();
     let buffer = "";
     let sawFinish = false;
+    let invalidToolCall = false;
+    let promptTokens = 0;
+    let completionTokens = 0;
+    const fragments = new Map<number, { id: string; name: string; arguments: string }>();
 
     while (true) {
       const { done, value } = await reader.read();
@@ -117,30 +132,60 @@ export class OpenAICompatibleProvider implements LlmProvider {
         if (payload === "[DONE]") continue;
         if (payload.length === 0) continue;
 
-        const chunk = JSON.parse(payload) as ChatCompletionChunk;
-        const delta = chunk.choices[0]?.delta.content;
+        let chunk: ChatCompletionChunk;
+        try {
+          chunk = JSON.parse(payload) as ChatCompletionChunk;
+        } catch {
+          yield { type: "error", message: "Provider returned malformed stream data" };
+          return;
+        }
+        if (chunk.usage) {
+          promptTokens += chunk.usage.prompt_tokens;
+          completionTokens += chunk.usage.completion_tokens;
+        }
+        const choice = chunk.choices[0];
+        const delta = choice?.delta.content;
 
         if (delta) {
           yield { type: "text.delta", text: delta };
         }
 
-        if (chunk.choices[0]?.finish_reason) {
+        for (const part of choice?.delta.tool_calls ?? []) {
+          const current = fragments.get(part.index) ?? { id: "", name: "", arguments: "" };
+          current.id += part.id ?? "";
+          current.name += part.function?.name ?? "";
+          current.arguments += part.function?.arguments ?? "";
+          fragments.set(part.index, current);
+        }
+        if (choice?.finish_reason) {
           sawFinish = true;
-          yield {
-            type: "done",
-            usage: chunk.usage
-              ? {
-                  promptTokens: chunk.usage.prompt_tokens,
-                  completionTokens: chunk.usage.completion_tokens,
-                }
-              : undefined,
-          };
+          const calls: ToolCall[] = [];
+          const ids = new Set<string>();
+          for (const fragment of [...fragments.entries()].sort(([a], [b]) => a - b).map(([, value]) => value)) {
+            try {
+              if (!fragment.id.trim() || ids.has(fragment.id) || !fragment.name.trim()) throw new Error();
+              const args: unknown = JSON.parse(fragment.arguments);
+              if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error();
+              ids.add(fragment.id);
+              calls.push({ id: fragment.id, name: fragment.name, arguments: args });
+            } catch {
+              invalidToolCall = true;
+              break;
+            }
+          }
+          if (invalidToolCall) {
+            yield { type: "error", message: "Provider returned an invalid tool call" };
+            return;
+          }
+          for (const call of calls) yield { type: "tool.call", call };
         }
       }
     }
 
     if (!sawFinish) {
       yield { type: "error", message: "Provider stream ended without a finish reason" };
+    } else {
+      yield { type: "done", usage: promptTokens || completionTokens ? { promptTokens, completionTokens } : undefined };
     }
   }
 }

@@ -11,6 +11,33 @@ export interface ProvidersResponse {
   defaultProviderId: string;
 }
 
+export interface SkillSummary {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface SkillsResponse {
+  skills: SkillSummary[];
+}
+
+export interface McpServerSummary {
+  id: string;
+  status: "ready" | "error";
+}
+
+export interface McpToolSummary {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  source: { kind: "mcp"; serverId: string };
+}
+
+export interface McpResponse {
+  servers: McpServerSummary[];
+  tools: McpToolSummary[];
+}
+
 export interface Chat {
   id: string;
   title: string;
@@ -36,5 +63,26 @@ export interface TokenUsage {
 export type AgentEvent =
   | { type: "run.started"; provider: string; model: string }
   | { type: "text.delta"; text: string }
+  | { type: "tool.started"; tool: string; arguments: unknown }
+  | { type: "tool.completed"; tool: string; result: unknown }
   | { type: "run.completed"; usage?: TokenUsage }
   | { type: "run.error"; message: string };
+
+export interface SendMessageOptions {
+  providerId?: string;
+  mode?: "manual" | "auto";
+  skillId?: string;
+}
+
+export interface ToolActivity {
+  name: string;
+  arguments: unknown;
+  result?: unknown;
+  status: "running" | "completed" | "error";
+}
+
+export interface DisplayMessage extends StoredMessage {
+  tools?: ToolActivity[];
+  durationMs?: number;
+  error?: string;
+}

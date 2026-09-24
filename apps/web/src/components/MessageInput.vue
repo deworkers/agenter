@@ -35,13 +35,13 @@ function onKeydown(event: KeyboardEvent): void {
       <textarea
         v-model="draft"
         :disabled="props.disabled"
-        placeholder="Message..."
-        rows="1"
+        placeholder="Спросите что-нибудь или опишите задачу…"
+        rows="2"
         @keydown="onKeydown"
       />
       <button
         type="submit"
-        aria-label="Send message"
+        aria-label="Отправить сообщение"
         :disabled="props.disabled || draft.trim().length === 0"
       >
         <svg

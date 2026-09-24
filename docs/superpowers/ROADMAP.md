@@ -14,7 +14,7 @@ testable increment. A plan is not evidence that its code exists.
 | 4 | Filesystem SkillRegistry and skill metadata API | `plans/2026-09-16-phase4-skills.md` | Implemented; `/api/skills` lists metadata only |
 | 5 | ToolRegistry and local tool contract | `plans/2026-09-21-phase5-tool-registry.md` | Implemented; API registry is empty by default |
 | 6 | MCP stdio integration | `plans/2026-09-21-phase6-mcp.md` | Implemented; tests/typecheck/lint reviewed |
-| 7 | Agent tool loop | `plans/2026-09-21-phase7-tool-loop.md` | Planned |
+| 7 | Agent tool loop | `plans/2026-09-21-phase7-tool-loop.md` | Implemented; provider-neutral bounded loop, safe shared registry execution, atomic call persistence, and SSE lifecycle events |
 | 8 | Model, skill, and tool UI | `plans/2026-09-21-phase8-ui.md` | Planned; provider selector exists as an early Phase 2 addition |
 | 9 | Reliability, security, observability, and cleanup | `plans/2026-09-21-phase9-reliability.md` | Planned |
 
