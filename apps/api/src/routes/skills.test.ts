@@ -32,6 +32,12 @@ describe("skills route", () => {
       expect(await created.json()).toEqual({ id: "review", name: "Review", description: "Review code" });
       expect((await create(input)).status).toBe(409);
       expect(await (await fetch(url)).json()).toEqual({ skills: [{ id: "review", name: "Review", description: "Review code" }] });
+      expect(await (await fetch(`${url}/review`)).json()).toMatchObject({ instructions: "Check the code" });
+      const edited = await fetch(`${url}/review`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, instructions: "Updated", enabled: false }) });
+      expect(edited.status).toBe(200); expect(registry.getContent("review")).toBeUndefined();
+      expect(await (await fetch(`${url}/review`)).json()).toMatchObject({ instructions: "Updated", enabled: false });
+      expect((await fetch(`${url}/review`, { method: "DELETE" })).status).toBe(204);
+      expect((await fetch(`${url}/review`)).status).toBe(404);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }

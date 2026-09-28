@@ -1,4 +1,5 @@
 export interface StdioMcpServerConfig {
+  allowedTools?: string[];
   transport?: "stdio";
   command: string;
   args?: string[];
@@ -6,6 +7,7 @@ export interface StdioMcpServerConfig {
 }
 
 export interface SseMcpServerConfig {
+  allowedTools?: string[];
   transport: "sse";
   url: string;
 }

@@ -11,7 +11,7 @@ mounts Express routes, and exposes SSE responses.
 - Keep concrete provider imports in `providerFactory.ts` and bootstrap code.
   `packages/agent-core` must not gain API, filesystem, SQLite, or provider
   implementation dependencies.
-- Provider definitions belong in `config/providers.yaml`; secrets use
+- Provider definitions belong in local `config/agenter.json`; secrets use
   `${ENV_NAME}` and `.env`/environment loading. Keep local-only startup
   possible when inactive remote providers lack keys, while the active default
   provider must be fully resolvable.
@@ -21,8 +21,12 @@ mounts Express routes, and exposes SSE responses.
   formats to clients.
 - `ChatService` owns API-facing orchestration and forwards provider selection
   through the runtime boundary. Keep persistence behind `ChatStorage`.
-- Future router, skills, tools, MCP, and Anthropic work requires the relevant
-  phase plan; do not silently introduce it here.
+- Settings migration/application, skills editing and context preview are
+  covered by the approved 2026-09-28 plan. Keep runtime snapshots alive until
+  leased turns finish. Anthropic remains outside this scope.
+- `/api/chats/:id/compact` is a separate, cancellable summary operation; it
+  leases the runtime snapshot, validates chat/options and returns safe errors.
+  It neither creates slash-command messages nor executes tools.
 
 ## Workflow
 

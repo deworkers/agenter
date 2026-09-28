@@ -23,6 +23,21 @@ export function createChatsRouter(chatService: ChatService): Router {
     res.json(result);
   });
 
+  router.post("/:id/compact", async (req, res) => {
+    if (!chatService.getChatWithMessages(req.params.id)) { res.status(404).json({ error: "Чат не найден" }); return; }
+    const { providerId, mode, skillId } = req.body ?? {};
+    if ((providerId !== undefined && typeof providerId !== "string") || (skillId !== undefined && typeof skillId !== "string") || (mode !== undefined && mode !== "manual" && mode !== "auto")) { res.status(400).json({ error: "Некорректные параметры сжатия" }); return; }
+    const abort = new AbortController();
+    const disconnect = () => { if (!res.writableEnded) abort.abort(); };
+    res.on("close", disconnect);
+    try {
+      const result = await chatService.compact(req.params.id, { providerId, mode, skillId, signal: abort.signal });
+      if (!res.destroyed) res.json(result);
+    } catch {
+      if (!res.destroyed) res.status(400).json({ error: "Не удалось создать резюме. Проверьте модель, наличие истории и доступное окно контекста." });
+    } finally { res.off("close", disconnect); }
+  });
+
   router.delete("/:id", (req, res) => {
     chatService.deleteChat(req.params.id);
     res.status(204).end();

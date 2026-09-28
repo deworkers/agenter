@@ -190,6 +190,7 @@ describe("messages route tool events", () => {
         "run.context",
         "tool.started",
         "tool.completed",
+        "run.context",
         "text.delta",
         "run.completed",
       ]);

@@ -11,6 +11,9 @@ const config: RoutingConfig = {
 };
 
 describe("ProviderRouter.classify", () => {
+  it("routes the research skill to research", () => {
+    expect(new ProviderRouter(config).classify({ activeSkill: "research" })).toBe("research");
+  });
   it("classifies as vision when an image is attached", () => {
     const router = new ProviderRouter(config);
     expect(router.classify({ hasImageAttachment: true })).toBe("vision");

@@ -96,7 +96,76 @@ const routingConfig: RoutingConfig = {
   vision: { provider: "fake" },
 };
 
+describe("conversation compaction", () => {
+  const message = (id: string, role: "user" | "assistant", content: string): StoredMessage => ({ id, role, content, chatId: "c", provider: null, model: null, createdAt: "" });
+  it("saves a summary checkpoint and uses it with new messages while preserving full history", async () => {
+    const storage = fakeStorage([message("m1", "user", "Old question"), message("m2", "assistant", "Old answer")]);
+    let checkpoint: { throughMessageId: string; summary: string } | undefined;
+    const contextStorage = { getContextCheckpoint: () => checkpoint, saveContextCheckpoint: vi.fn((_chatId: string, next: { throughMessageId: string; summary: string }) => { checkpoint = next; }) };
+    const requests: import("./types.js").LlmRequest[] = [];
+    const provider = { ...fakeProvider("fake", "test", []), async *chat(request: import("./types.js").LlmRequest): AsyncIterable<LlmEvent> { requests.push(structuredClone({ ...request, signal: undefined })); yield { type: "text.delta", text: requests.length === 1 ? "User asked Old question; answer was Old answer." : "Next answer" }; yield { type: "done" }; } };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig), { contextStorage });
+    const compacted = await runtime.compact("c");
+    expect(compacted.compactedMessages).toBe(2);
+    expect(checkpoint?.throughMessageId).toBe("m2");
+    expect(storage.listMessages("c")).toHaveLength(2);
+    for await (const event of runtime.runTurn("c", "Next question")) void event;
+    expect(requests[1]?.messages.map(item => item.content).join("\n")).toContain(checkpoint?.summary);
+    expect(requests[1]?.messages.filter(item => item.content === "Old question")).toEqual([]);
+    expect(requests[1]?.messages.at(-1)?.content).toBe("Next question");
+    expect(storage.listMessages("c")).toHaveLength(4);
+  });
+  it("leaves an existing checkpoint intact if summary generation fails or is aborted", async () => {
+    const storage = fakeStorage([message("m1", "user", "Question")]);
+    const contextStorage = { getContextCheckpoint: () => ({ throughMessageId: "m1", summary: "Previous summary" }), saveContextCheckpoint: vi.fn() };
+    const runtime = new AgentRuntime(registryWith([fakeProvider("fake", "test", [{ type: "text.delta", text: "Partial" }])], "fake"), storage, new ProviderRouter(routingConfig), { contextStorage });
+    await expect(runtime.compact("c")).rejects.toThrow();
+    const abort = new AbortController(); abort.abort();
+    await expect(runtime.compact("c", { signal: abort.signal })).rejects.toThrow();
+    expect(contextStorage.saveContextCheckpoint).not.toHaveBeenCalled();
+    expect(storage.listMessages("c")).toHaveLength(1);
+  });
+  it("summarizes an overflowing transcript in bounded requests without offering tools", async () => {
+    const storage = fakeStorage([message("m1", "user", "long text ".repeat(200))]);
+    const requests: import("./types.js").LlmRequest[] = [];
+    const provider = { ...fakeProvider("fake", "test", []), getContextWindow: () => 256, getMaxOutputTokens: () => 64, async *chat(request: import("./types.js").LlmRequest): AsyncIterable<LlmEvent> { requests.push(request); yield { type: "text.delta", text: "Facts retained." }; yield { type: "done" }; } };
+    const contextStorage = { getContextCheckpoint: () => undefined, saveContextCheckpoint: vi.fn() };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig), { contextStorage });
+    await runtime.compact("c");
+    expect(requests.length).toBeGreaterThan(1);
+    for (const request of requests) {
+      expect(request.tools).toBeUndefined();
+      const { estimateTokens } = await import("./ContextBudget.js");
+      expect(request.messages.reduce((sum, item) => sum + estimateTokens(item.content ?? ""), 0) + request.maxOutputTokens!).toBeLessThanOrEqual(256);
+    }
+    expect(contextStorage.saveContextCheckpoint).toHaveBeenCalledOnce();
+  });
+});
+
 describe("AgentRuntime.runTurn", () => {
+  it("records an interrupted run when the consumer disconnects after run.started", async () => {
+    const storage = fakeStorage();
+    const runtime = new AgentRuntime(registryWith([fakeProvider("fake", "test", [])], "fake"), storage, new ProviderRouter(routingConfig));
+    const turn = runtime.runTurn("c", "hi");
+    expect((await turn.next()).value).toMatchObject({ type: "run.started" });
+    await turn.return(undefined);
+    expect(storage.completeRun).toHaveBeenCalledOnce();
+    expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error" }), []);
+  });
+  it("rejects an overflowing context before calling the provider and handles cancellation", async () => {
+    let calls = 0;
+    const provider = { ...fakeProvider("fake", "fake", []), getContextWindow: () => 128,
+      async *chat(request: import("./types.js").LlmRequest): AsyncIterable<LlmEvent> { calls++; request.signal?.throwIfAborted(); yield { type: "done" }; } };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), fakeStorage(), new ProviderRouter(routingConfig));
+    const events = [];
+    for await (const event of runtime.runTurn("c", "x".repeat(2000))) events.push(event);
+    expect(calls).toBe(0);
+    expect(events.at(-1)).toMatchObject({ type: "run.error" });
+    const abort = new AbortController(); abort.abort();
+    for await (const event of runtime.runTurn("c", "hi", { signal: abort.signal })) events.push(event);
+    expect(events.at(-1)).toMatchObject({ type: "run.error" });
+    expect(calls).toBe(0);
+  });
   it("advertises only allowed tools and never executes a tool outside that set", async () => {
     const storage = fakeStorage();
     const requests: string[][] = [];
@@ -139,8 +208,9 @@ describe("AgentRuntime.runTurn", () => {
     for await (const event of runtime.runTurn("chat-1", "hi", { activeSkillId: "review", activeSkillContent: "Review carefully" })) events.push(event);
 
     const context = { systemPrompt: "Base instruction", skill: { id: "review", content: "Review carefully" }, tools: [tool] };
-    expect(storage.addMessage).toHaveBeenCalledWith(expect.objectContaining({ role: "user", context }));
-    expect(events[1]).toEqual({ type: "run.context", context });
+    expect(storage.addMessage).toHaveBeenCalledWith(expect.objectContaining({ role: "user", context: expect.objectContaining(context) }));
+    expect(events[1]).toMatchObject({ type: "run.context", context });
+    expect(events[1]).toMatchObject({ context: { budget: { contextWindow: 8192, estimated: true } } });
   });
 
   it("uses the registry's default provider when no options are given", async () => {
@@ -418,7 +488,7 @@ describe("AgentRuntime.runTurn", () => {
     const events = [];
     for await (const event of runtime.runTurn("chat-1", "hi")) events.push(event);
 
-    expect(events.map(({ type }) => type)).toEqual(["run.started", "run.context", "tool.started", "tool.completed", "text.delta", "run.completed"]);
+    expect(events.map(({ type }) => type)).toEqual(["run.started", "run.context", "tool.started", "tool.completed", "run.context", "text.delta", "run.completed"]);
     expect(requests[0]?.tools).toEqual(toolRuntime.listTools());
     expect(requests[1]?.messages.slice(-2)).toEqual([
       { role: "assistant", content: null, toolCalls: [{ id: "c1", name: "lookup", arguments: { q: "x" } }] },

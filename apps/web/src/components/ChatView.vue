@@ -2,11 +2,12 @@
 import { computed, nextTick, ref, watch } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import type { Chat, DisplayMessage, McpServerSummary, McpToolSummary, ProviderSummary, SkillSummary } from "../api/types.js";
+import type { Chat, ContextBudget, DisplayMessage, ProviderSummary } from "../api/types.js";
 import { providerPickerOptions } from "../composables/pickerOptions.js";
 import MessageInput from "./MessageInput.vue";
-import McpPanel from "./McpPanel.vue";
 import OptionPicker from "./OptionPicker.vue";
+import { parseChatCommand } from "../composables/chatCommands.js";
+import { contextProgress } from "../composables/contextMeter.js";
 
 const props = defineProps<{
   messages: DisplayMessage[];
@@ -16,42 +17,53 @@ const props = defineProps<{
   defaultProviderId: string;
   providersLoading: boolean;
   providersError: string | null;
-  skills: SkillSummary[];
-  selectedSkillId: string;
-  skillsLoading: boolean;
-  skillsError: string | null;
-  mcpServers: McpServerSummary[];
-  mcpTools: McpToolSummary[];
-  activeMcpServerIds: string[];
-  mcpLoading: boolean;
-  mcpError: string | null;
+  budget: ContextBudget | null;
+  contextError: string;
+  contextUpdating: boolean;
+  commandNotice: string;
 }>();
 
 const providerId = defineModel<string>("providerId", { required: true });
-const toolsOpen = ref(false);
+const draft = defineModel<string>("draft", { required: true });
+const historyLimit = defineModel<number | undefined>("historyLimit", { default: undefined });
+const modelPicker = ref<InstanceType<typeof OptionPicker> | null>(null);
 const messageList = ref<HTMLElement | null>(null);
 const providerOptions = computed(() => providerPickerOptions(props.providers, props.defaultProviderId));
-const activeCapabilityCount = computed(() => props.activeMcpServerIds.length + (props.selectedSkillId ? 1 : 0));
+const occupancy = computed(() => props.budget ? contextProgress(props.budget) : { value: 0, max: 1 });
+const isCommand = computed(() => parseChatCommand(draft.value) !== null);
+defineExpose({ openModelPicker: () => modelPicker.value?.open() });
 
 const emit = defineEmits<{
   send: [content: string];
   newChat: [];
   retryProviders: [];
-  retrySkills: [];
-  retryMcp: [];
-  toggleMcp: [id: string];
-  toggleSkill: [id: string];
-  addSkill: [];
+  stop: [];
+  menu: [];
+  settings: [];
 }>();
 
 watch(() => props.messages, async () => {
+  const list = messageList.value;
+  const nearBottom = !list || list.scrollHeight - list.scrollTop - list.clientHeight < 120;
   await nextTick();
-  messageList.value?.scrollTo({ top: messageList.value.scrollHeight, behavior: "smooth" });
+  if (nearBottom) messageList.value?.scrollTo({ top: messageList.value.scrollHeight, behavior: "instant" });
 }, { deep: true });
+watch(() => props.activeChat?.id, async () => { await nextTick(); messageList.value?.scrollTo({ top: messageList.value.scrollHeight }); });
+const copied = ref("");
+async function copy(text: string, id: string): Promise<void> {
+  try { await navigator.clipboard.writeText(text); copied.value = id; } catch { copied.value = ""; }
+}
+function copyCode(event: MouseEvent, messageId: string): void {
+  const target = event.target as HTMLElement;
+  const button = target.closest(".copy-code");
+  const code = button?.closest("pre")?.querySelector("code");
+  if (code) void copy(code.textContent ?? "", `${messageId}:code`);
+}
+function tokens(value: number): string { return new Intl.NumberFormat("ru").format(value); }
 
 function renderMarkdown(content: string): string {
   const html = marked.parse(content, { async: false, breaks: true });
-  return DOMPurify.sanitize(html);
+  return DOMPurify.sanitize(html).replace(/<pre>/g, '<pre><button type="button" class="copy-code">Копировать код</button>');
 }
 
 function jsonText(value: unknown): string {
@@ -70,61 +82,25 @@ function duration(ms: number): string {
 <template>
   <section class="chat-view">
     <header class="chat-header">
+      <button
+        class="icon-button mobile-only"
+        type="button"
+        aria-label="Открыть историю чатов"
+        @click="emit('menu')"
+      >
+        ☰
+      </button>
       <div class="chat-heading">
         <span class="chat-heading-name">{{ activeChat?.title || 'Agenter' }}</span>
         <span class="chat-heading-subtitle">Локальный AI-чат</span>
       </div>
       <button
-        class="header-action"
+        class="icon-button mobile-only"
         type="button"
-        :aria-expanded="toolsOpen"
-        aria-controls="mcp-panel"
-        @click="toolsOpen = !toolsOpen"
+        aria-label="Открыть настройки"
+        @click="emit('settings')"
       >
-        <svg
-          width="17"
-          height="17"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.8"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <rect
-            x="3"
-            y="3"
-            width="7"
-            height="7"
-            rx="1.5"
-          />
-          <rect
-            x="14"
-            y="3"
-            width="7"
-            height="7"
-            rx="1.5"
-          />
-          <rect
-            x="3"
-            y="14"
-            width="7"
-            height="7"
-            rx="1.5"
-          />
-          <rect
-            x="14"
-            y="14"
-            width="7"
-            height="7"
-            rx="1.5"
-          />
-        </svg>
-        Инструменты
-        <span
-          class="tool-count"
-        >{{ activeCapabilityCount ? `${activeCapabilityCount} активн.` : 'Выкл.' }}</span>
+        ⚙
       </button>
     </header>
 
@@ -224,16 +200,30 @@ function duration(ms: number): string {
                 </details>
               </template>
               <template v-else>
+                <!-- eslint-disable vue/no-v-html -- Markdown is sanitized by DOMPurify. -->
                 <div
                   v-if="message.content"
                   class="message-content markdown-body"
+                  @click="copyCode($event, message.id)"
                   v-html="renderMarkdown(message.content)"
                 />
+                <!-- eslint-enable vue/no-v-html -->
                 <div
                   v-if="isStreaming && message === messages.at(-1) && !message.content && !message.tools?.length"
                   class="thinking"
                 >
                   <span class="thinking-dot" /> Думаю…
+                </div>
+                <div
+                  v-if="message.content"
+                  class="message-actions"
+                >
+                  <button
+                    type="button"
+                    @click="copy(message.content,message.id)"
+                  >
+                    {{ copied===message.id ? 'Скопировано' : 'Копировать ответ' }}
+                  </button><small v-if="copied===`${message.id}:code`">Код скопирован</small>
                 </div>
                 <div
                   v-if="message.tools?.length"
@@ -280,6 +270,7 @@ function duration(ms: number): string {
                   <span v-if="message.model">{{ message.model }}</span>
                   <span v-if="message.provider && message.provider !== message.model">{{ message.provider }}</span>
                   <span v-if="message.durationMs !== undefined">{{ duration(message.durationMs) }}</span>
+                  <span v-if="message.usage">{{ tokens(message.usage.promptTokens + message.usage.completionTokens) }} токенов за запуск</span>
                 </div>
               </template>
             </div>
@@ -290,12 +281,16 @@ function duration(ms: number): string {
       <div class="composer-wrap">
         <div class="composer">
           <MessageInput
-            :disabled="isStreaming || providersLoading || !!providersError || !providerId"
+            v-model:draft="draft"
+            :streaming="isStreaming"
+            :disabled="isStreaming || (!isCommand && (providersLoading || !!providersError || !providerId || !!budget?.overLimit))"
             @send="(content) => emit('send', content)"
+            @stop="emit('stop')"
           />
           <div class="composer-controls">
             <div class="selector-group">
               <OptionPicker
+                ref="modelPicker"
                 v-model="providerId"
                 label="Модель"
                 :options="providerOptions"
@@ -307,6 +302,49 @@ function duration(ms: number): string {
             <span class="composer-hint">Enter — отправить · Shift+Enter — новая строка</span>
           </div>
         </div>
+        <details
+          v-if="budget"
+          class="context-meter"
+          :class="{over:budget.overLimit}"
+        >
+          <summary :aria-busy="contextUpdating">
+            Контекст ≈{{ tokens(budget.usedTokens) }} / {{ tokens(budget.contextWindow) }} · свободно ≈{{ tokens(budget.availableTokens) }}<span
+              class="context-refresh-status"
+              :title="contextUpdating ? 'Пересчёт…' : contextError ? 'Оценка устарела' : ''"
+              :aria-label="contextUpdating ? 'Пересчёт…' : contextError ? 'Оценка устарела' : undefined"
+            >{{ contextUpdating ? '⟳' : contextError ? '!' : '' }}</span>
+          </summary>
+          <progress
+            :value="occupancy.value"
+            :max="occupancy.max"
+            aria-label="Заполнение окна контекста"
+          />
+          <div class="context-breakdown">
+            <span
+              v-for="(label,key) in {system:'Система',skill:'Навык',tools:'Инструменты',history:'История',message:'Сообщение',results:'Результаты'}"
+              :key="key"
+            >{{ label }}: ≈{{ tokens(budget.breakdown[key]) }}</span><span>Резерв ответа: {{ tokens(budget.outputReserve) }}</span>
+          </div>
+          <small>Оценка по размеру текста; точный расход зависит от токенизатора модели.</small>
+          <label>История в запросе<select v-model="historyLimit"><option :value="undefined">Вся история</option><option :value="20">Последние 20 сообщений</option><option :value="0">Без прошлых сообщений</option></select></label>
+          <p
+            v-if="budget.overLimit"
+            role="alert"
+          >
+            Контекст переполнен. Уменьшите историю или число инструментов.
+          </p>
+        </details>
+        <small
+          v-else
+          class="context-meter"
+        >{{ contextError || 'Оценка контекста…' }}</small>
+        <p
+          v-if="commandNotice"
+          class="command-notice"
+          role="status"
+        >
+          {{ commandNotice }}
+        </p>
         <div
           v-if="providersError"
           class="catalog-errors"
@@ -325,26 +363,5 @@ function duration(ms: number): string {
         </p>
       </div>
     </div>
-
-    <McpPanel
-      v-if="toolsOpen"
-      id="mcp-panel"
-      :servers="mcpServers"
-      :tools="mcpTools"
-      :active-server-ids="activeMcpServerIds"
-      :skills="skills"
-      :selected-skill-id="selectedSkillId"
-      :skills-loading="skillsLoading"
-      :skills-error="skillsError"
-      :is-streaming="isStreaming"
-      :loading="mcpLoading"
-      :error="mcpError"
-      @close="toolsOpen = false"
-      @refresh="emit('retryMcp')"
-      @toggle="(id) => emit('toggleMcp', id)"
-      @toggle-skill="(id) => emit('toggleSkill', id)"
-      @retry-skills="emit('retrySkills')"
-      @add-skill="emit('addSkill')"
-    />
   </section>
 </template>

@@ -15,6 +15,7 @@ export class ProviderRouter {
 
   classify(context: RoutingContext): TaskType {
     if (context.hasImageAttachment === true) return "vision";
+    if (context.activeSkill === "research") return "research";
     if (context.activeSkill) return "coding";
     if (context.toolsRequired === true) return "reasoning";
     return "simple";

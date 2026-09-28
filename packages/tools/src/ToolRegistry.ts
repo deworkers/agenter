@@ -19,7 +19,7 @@ export class ToolRegistry implements ToolRegistryInterface {
     return this.tools.get(name);
   }
 
-  async execute(name: string, args: unknown): Promise<unknown> {
+  async execute(name: string, args: unknown, signal?: AbortSignal): Promise<unknown> {
     const tool = this.get(name);
     if (!tool) {
       throw new Error(`Tool "${name}" is not registered.`);
@@ -30,7 +30,8 @@ export class ToolRegistry implements ToolRegistryInterface {
     }
 
     try {
-      return await tool.execute(args);
+      signal?.throwIfAborted();
+      return signal ? await tool.execute(args, signal) : await tool.execute(args);
     } catch {
       throw new Error(`Tool "${name}" execution failed.`);
     }

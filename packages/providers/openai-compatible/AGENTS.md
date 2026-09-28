@@ -20,8 +20,8 @@ vLLM, LM Studio, or hosted compatible APIs.
 - Never log or include API keys in errors, snapshots, fixtures, or responses.
 - Registry construction, routing, persistence, and HTTP route concerns belong
   outside this package.
-- Anthropic and tool-call adapter behavior are future extensions unless an
-  approved phase plan adds them.
+- Tool calling, configurable output reserve/timeout, cancellation and requested
+  streaming usage are implemented. Anthropic remains a future extension.
 
 ## Workflow
 

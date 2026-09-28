@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import DOMPurify from "dompurify";
+import { marked } from "marked";
 import type { NewSkillInput } from "../api/types.js";
 import { skillIdFromName } from "../composables/skillId.js";
 
-defineProps<{ saving: boolean; error: string | null }>();
+const props = defineProps<{ saving: boolean; error: string | null; initial?: NewSkillInput }>();
 const emit = defineEmits<{ close: []; create: [input: NewSkillInput] }>();
-const name = ref("");
-const id = ref("");
-const description = ref("");
-const instructions = ref("");
-const editedId = ref(false);
+const name = ref(props.initial?.name ?? "");
+const id = ref(props.initial?.id ?? "");
+const description = ref(props.initial?.description ?? "");
+const instructions = ref(props.initial?.instructions ?? "");
+const editedId = ref(!!props.initial);
+const enabled = ref(props.initial?.enabled !== false);
+const preview = ref(false);
+function previewHtml(): string { return DOMPurify.sanitize(marked.parse(instructions.value, { async: false })); }
 
 watch(name, (value) => {
   if (!editedId.value) id.value = skillIdFromName(value);
@@ -21,6 +26,7 @@ function submit(): void {
     name: name.value.trim(),
     description: description.value.trim(),
     instructions: instructions.value.trim(),
+    ...(props.initial ? { enabled: enabled.value } : {}),
   });
 }
 </script>
@@ -40,7 +46,7 @@ function submit(): void {
       <div class="skill-dialog-header">
         <div>
           <h2 id="skill-dialog-title">
-            Новый навык
+            {{ initial ? 'Редактирование навыка' : 'Новый навык' }}
           </h2>
           <p>Инструкции навыка будут добавлены к запросу модели, когда вы выберете его в чате.</p>
         </div>
@@ -69,6 +75,7 @@ function submit(): void {
         <label>ID папки
           <input
             v-model="id"
+            :disabled="!!initial"
             required
             maxlength="64"
             pattern="[a-z0-9][a-z0-9-]*"
@@ -95,6 +102,27 @@ function submit(): void {
           />
           <small>Можно использовать Markdown. Содержимое будет отправляться модели вместе с вашими сообщениями.</small>
         </label>
+        <label
+          v-if="initial"
+          class="check-label"
+        ><input
+          v-model="enabled"
+          type="checkbox"
+        >Навык включён</label>
+        <button
+          type="button"
+          class="secondary-button"
+          @click="preview=!preview"
+        >
+          {{ preview ? 'Скрыть предпросмотр' : 'Предпросмотр Markdown' }}
+        </button>
+        <!-- eslint-disable vue/no-v-html -- Preview is sanitized by DOMPurify. -->
+        <div
+          v-if="preview"
+          class="markdown-body skill-preview"
+          v-html="previewHtml()"
+        />
+        <!-- eslint-enable vue/no-v-html -->
         <p
           v-if="error"
           class="skill-form-error"
@@ -115,7 +143,7 @@ function submit(): void {
             class="primary-button"
             :disabled="saving"
           >
-            {{ saving ? 'Сохраняем…' : 'Создать и выбрать' }}
+            {{ saving ? 'Сохраняем…' : initial ? 'Сохранить навык' : 'Создать и выбрать' }}
           </button>
         </div>
       </form>

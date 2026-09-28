@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { ref } from "vue";
 
 const props = defineProps<{
   disabled: boolean;
+  streaming?: boolean;
 }>();
 
 const emit = defineEmits<{
   send: [content: string];
+  stop: [];
 }>();
 
-const draft = ref("");
+const draft = defineModel<string>("draft", { default: "" });
 
 function submit(): void {
   const content = draft.value.trim();
@@ -34,12 +35,13 @@ function onKeydown(event: KeyboardEvent): void {
     <div class="message-input-inner">
       <textarea
         v-model="draft"
-        :disabled="props.disabled"
-        placeholder="Спросите что-нибудь или опишите задачу…"
+        :disabled="props.streaming"
+        placeholder="Сообщение или команда: /model, /new, /compact"
         rows="2"
         @keydown="onKeydown"
       />
       <button
+        v-if="!streaming"
         type="submit"
         aria-label="Отправить сообщение"
         :disabled="props.disabled || draft.trim().length === 0"
@@ -57,6 +59,15 @@ function onKeydown(event: KeyboardEvent): void {
           <path d="M12 19V5" />
           <path d="M5 12l7-7 7 7" />
         </svg>
+      </button>
+      <button
+        v-else
+        type="button"
+        class="stop-button"
+        aria-label="Остановить генерацию"
+        @click="emit('stop')"
+      >
+        ■
       </button>
     </div>
   </form>

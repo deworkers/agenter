@@ -56,10 +56,15 @@ describe("catalogs", () => {
 describe("sendMessage", () => {
   it("decodes the request context event", async () => {
     const context = { systemPrompt: "Base", skill: { id: "review", content: "Steps" }, tools: [] };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([{ type: "run.context", context }])));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([{ type: "run.context", context }, { type: "run.completed" }])));
     const events = [];
     for await (const event of sendMessage("chat-1", "hello")) events.push(event);
-    expect(events).toEqual([{ type: "run.context", context }]);
+    expect(events).toEqual([{ type: "run.context", context }, { type: "run.completed" }]);
+  });
+  it("rejects a disconnected stream without a terminal event", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([{ type: "text.delta", text: "partial" }])));
+    const consume = async () => { for await (const event of sendMessage("c", "hi")) void event; };
+    await expect(consume()).rejects.toThrow("Ответ прерван");
   });
   it("parses each SSE data line into an AgentEvent", async () => {
     vi.stubGlobal(

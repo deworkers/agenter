@@ -66,6 +66,14 @@ afterEach(() => {
 });
 
 describe("McpManager", () => {
+  it("blocks tools outside the configured allowlist and propagates cancellation to MCP", async () => {
+    const registry = new ToolRegistry(); const manager = new McpManager(registry);
+    sdk.tools.push({ name: "read", inputSchema: {} }, { name: "write", inputSchema: {} });
+    await manager.start({ files: { command: "test", allowedTools: ["read"] } });
+    await expect(registry.execute("files__write", {})).rejects.toThrow("not safe");
+    const controller = new AbortController(); await registry.execute("files__read", {}, controller.signal);
+    expect(sdk.clients[0]?.callTool).toHaveBeenCalledWith({ name: "read", arguments: {} }, undefined, { signal: controller.signal, timeout: 120000 });
+  });
   it("connects an SSE server and registers its namespaced tools", async () => {
     const registry = new ToolRegistry();
     const manager = new McpManager(registry);
@@ -107,7 +115,7 @@ describe("McpManager", () => {
     expect(registry.get("local__search")).toMatchObject({ safety: "safe", source: { kind: "mcp", serverId: "local" } });
     expect(await registry.execute("local__search", { query: "hello" })).toEqual({ content: [{ type: "text", text: "ok" }] });
     expect(sdk.clients).toHaveLength(1);
-    expect(sdk.clients[0]?.callTool).toHaveBeenCalledWith({ name: "search", arguments: { query: "hello" } });
+    expect(sdk.clients[0]?.callTool).toHaveBeenCalledWith({ name: "search", arguments: { query: "hello" } }, undefined, { signal: undefined, timeout: 120_000 });
   });
 
   it("accepts an omitted MCP tool description and normalizes it to an empty string", async () => {

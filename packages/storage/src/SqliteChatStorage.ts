@@ -9,15 +9,24 @@ import type {
   NewToolCallInput,
   RunRecord,
   StoredMessage,
+  ContextCheckpoint,
+  ContextCheckpointStorage,
 } from "@agenter/agent-core";
 import { SCHEMA_SQL } from "./schema.js";
 
-export class SqliteChatStorage implements ChatStorage {
+export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage {
   private readonly db: DatabaseSync;
 
   constructor(dbPath: string) {
     this.db = new DatabaseSync(dbPath);
     this.db.exec(SCHEMA_SQL);
+    const columns = this.db.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>;
+    if (!columns.some(({ name }) => name === "assistant_message_id")) this.db.exec("ALTER TABLE runs ADD COLUMN assistant_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL");
+    this.db.exec(`UPDATE runs SET assistant_message_id = (
+      SELECT a.id FROM messages a WHERE a.chat_id = runs.chat_id AND a.role = 'assistant'
+      AND a.rowid > (SELECT rowid FROM messages WHERE id = runs.message_id)
+      AND a.rowid < COALESCE((SELECT MIN(rowid) FROM messages WHERE chat_id = runs.chat_id AND role = 'user' AND rowid > (SELECT rowid FROM messages WHERE id = runs.message_id)), 9223372036854775807)
+      ORDER BY a.rowid LIMIT 1) WHERE status = 'success' AND assistant_message_id IS NULL`);
   }
 
   close(): void {
@@ -70,6 +79,16 @@ export class SqliteChatStorage implements ChatStorage {
     this.db.prepare(`UPDATE chats SET updated_at = ? WHERE id = ?`).run(new Date().toISOString(), id);
   }
 
+  getContextCheckpoint(chatId: string): ContextCheckpoint | undefined {
+    const row = this.db.prepare("SELECT through_message_id, summary FROM chat_context_checkpoints WHERE chat_id = ?").get(chatId) as { through_message_id: string; summary: string } | undefined;
+    return row ? { throughMessageId: row.through_message_id, summary: row.summary } : undefined;
+  }
+
+  saveContextCheckpoint(chatId: string, checkpoint: ContextCheckpoint): void {
+    if (!checkpoint.summary.trim() || checkpoint.summary.length > 100_000 || !this.db.prepare("SELECT id FROM messages WHERE id = ? AND chat_id = ?").get(checkpoint.throughMessageId, chatId)) throw new RangeError("Invalid context checkpoint");
+    this.db.prepare("INSERT INTO chat_context_checkpoints (chat_id, through_message_id, summary) VALUES (?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET through_message_id = excluded.through_message_id, summary = excluded.summary").run(chatId, checkpoint.throughMessageId, checkpoint.summary);
+  }
+
   listMessages(chatId: string): StoredMessage[] {
     const rows = this.db
       .prepare(
@@ -88,7 +107,7 @@ export class SqliteChatStorage implements ChatStorage {
         context_json: string | null;
       }>;
 
-    return rows.map((row) => ({
+    const messages: StoredMessage[] = rows.map((row) => ({
       id: row.id,
       chatId: row.chat_id,
       role: row.role as StoredMessage["role"],
@@ -98,6 +117,21 @@ export class SqliteChatStorage implements ChatStorage {
       createdAt: row.created_at,
       ...(row.context_json ? { context: JSON.parse(row.context_json) as StoredMessage["context"] } : {}),
     }));
+    const runs = this.db.prepare("SELECT id, message_id, assistant_message_id, provider, model, status, duration_ms, tokens_in, tokens_out, created_at FROM runs WHERE chat_id = ? ORDER BY rowid").all(chatId) as Array<{ id: string; message_id: string; assistant_message_id: string | null; provider: string; model: string; status: string; duration_ms: number; tokens_in: number | null; tokens_out: number | null; created_at: string }>;
+    for (const run of runs) {
+      let message = messages.find((item) => item.id === run.assistant_message_id);
+      if (!message && run.status !== "success") {
+        message = { id: `run-${run.id}`, chatId, role: "assistant", content: "", provider: run.provider, model: run.model, createdAt: run.created_at, error: "Запрос не завершён успешно." };
+        const index = messages.findIndex((item) => item.id === run.message_id);
+        messages.splice(index < 0 ? messages.length : index + 1, 0, message);
+      }
+      if (!message) continue;
+      message.durationMs = run.duration_ms;
+      if (run.tokens_in !== null && run.tokens_out !== null) message.usage = { promptTokens: run.tokens_in, completionTokens: run.tokens_out };
+      const calls = this.db.prepare("SELECT tool_name, arguments, result, status FROM tool_calls WHERE run_id = ? ORDER BY rowid").all(run.id) as Array<{ tool_name: string; arguments: string; result: string | null; status: string }>;
+      if (calls.length) message.tools = calls.map((call) => ({ name: call.tool_name, arguments: JSON.parse(call.arguments), ...(call.result ? { result: JSON.parse(call.result) } : {}), status: call.status === "success" ? "completed" : "error" }));
+    }
+    return messages;
   }
 
   addMessage(input: NewMessageInput): StoredMessage {
@@ -178,12 +212,14 @@ export class SqliteChatStorage implements ChatStorage {
   ): RunRecord {
     this.db.exec("BEGIN");
     try {
+      let assistantId: string | undefined;
       if (assistantMessage) {
-        this.addMessage(assistantMessage);
+        assistantId = this.addMessage(assistantMessage).id;
         this.touchChat(assistantMessage.chatId);
       }
 
       const run = this.addRun(input);
+      if (assistantId) this.db.prepare("UPDATE runs SET assistant_message_id = ? WHERE id = ?").run(assistantId, run.id);
       const insertToolCall = this.db.prepare(
         `INSERT INTO tool_calls (id, run_id, tool_name, arguments, result, status, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`

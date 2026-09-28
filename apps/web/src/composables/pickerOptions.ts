@@ -12,9 +12,9 @@ export function providerPickerOptions(providers: ProviderSummary[], defaultProvi
     },
     ...providers.map((provider) => ({
       value: provider.id,
-      label: provider.id,
+      label: provider.label || provider.id,
       detail: provider.model,
-      triggerLabel: `${provider.id} · ${provider.model.split(/[\\/]/).at(-1) ?? provider.model}`,
+      triggerLabel: provider.label || `${provider.id} · ${provider.model.split(/[\\/]/).at(-1) ?? provider.model}`,
       badge: provider.id === defaultProviderId ? "По умолчанию" : undefined,
     })),
   ];

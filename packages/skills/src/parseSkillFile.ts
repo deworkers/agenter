@@ -4,6 +4,7 @@ export interface ParsedSkillFile {
   name: string;
   description: string;
   body: string;
+  enabled?: boolean;
 }
 
 const FRONTMATTER_DELIMITER = "---";
@@ -21,7 +22,7 @@ export function parseSkillFile(raw: string): ParsedSkillFile {
   }
 
   const frontmatterYaml = lines.slice(1, closingIndex).join("\n");
-  const frontmatter = parseYaml(frontmatterYaml) as { name?: unknown; description?: unknown } | null;
+  const frontmatter = parseYaml(frontmatterYaml) as { name?: unknown; description?: unknown; enabled?: unknown } | null;
 
   const name = frontmatter?.name;
   if (typeof name !== "string" || name.length === 0) {
@@ -38,5 +39,5 @@ export function parseSkillFile(raw: string): ParsedSkillFile {
     .join("\n")
     .replace(/^\n+/, "");
 
-  return { name, description, body };
+  return { name, description, body, ...(frontmatter?.enabled === false ? { enabled: false } : {}) };
 }

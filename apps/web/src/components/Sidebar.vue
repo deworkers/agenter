@@ -1,28 +1,53 @@
 <script setup lang="ts">
-import type { Chat } from "../api/types.js";
+import type { Chat, McpServerSummary, SkillSummary } from "../api/types.js";
+import CapabilitySwitches from "./CapabilitySwitches.vue";
 
 defineProps<{
   chats: Chat[];
   activeChatId: string | null;
+  mobileOpen?: boolean;
+  busy?: boolean;
+  servers: McpServerSummary[];
+  activeServerIds: string[];
+  skills: SkillSummary[];
+  selectedSkillId: string;
+  capabilitiesLoading: boolean;
+  capabilitiesError: string | null;
 }>();
 
 const emit = defineEmits<{
   newChat: [];
   selectChat: [id: string];
   deleteChat: [id: string];
+  close: [];
+  settings: [];
+  toggleServer: [id: string];
+  toggleSkill: [id: string];
 }>();
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside
+    class="sidebar"
+    :class="{'mobile-open':mobileOpen}"
+  >
     <div class="sidebar-header">
       <div class="brand-mark">
         ✳
       </div>
       <span>Agenter</span>
+      <button
+        class="icon-button mobile-only"
+        type="button"
+        aria-label="Закрыть историю"
+        @click="emit('close')"
+      >
+        ×
+      </button>
     </div>
     <button
       class="new-chat-button"
+      :disabled="busy"
       type="button"
       @click="emit('newChat')"
     >
@@ -64,6 +89,7 @@ const emit = defineEmits<{
         <button
           type="button"
           class="chat-title"
+          :disabled="busy"
           @click="emit('selectChat', chat.id)"
         >
           {{ chat.title }}
@@ -71,6 +97,7 @@ const emit = defineEmits<{
         <button
           type="button"
           class="delete-button"
+          :disabled="busy"
           :aria-label="`Удалить чат ${chat.title}`"
           @click="emit('deleteChat', chat.id)"
         >
@@ -90,8 +117,26 @@ const emit = defineEmits<{
         </button>
       </li>
     </ul>
+    <CapabilitySwitches
+      :servers="servers"
+      :active-server-ids="activeServerIds"
+      :skills="skills"
+      :selected-skill-id="selectedSkillId"
+      :busy="busy"
+      :loading="capabilitiesLoading"
+      :error="capabilitiesError"
+      @toggle-server="emit('toggleServer', $event)"
+      @toggle-skill="emit('toggleSkill', $event)"
+    />
     <div class="sidebar-footer">
       <span class="sidebar-footer-dot" /> Локальное рабочее пространство
     </div>
+    <button
+      class="settings-open-button"
+      type="button"
+      @click="emit('settings')"
+    >
+      ⚙ Настройки
+    </button>
   </aside>
 </template>

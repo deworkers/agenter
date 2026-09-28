@@ -17,6 +17,10 @@ export interface ProviderConfigEntry {
   apiKey: string;
   model: string;
   contextWindow?: number;
+  maxOutputTokens?: number;
+  timeoutMs?: number;
+  supportsTools?: boolean;
+  label?: string;
 }
 
 export interface AppConfig {

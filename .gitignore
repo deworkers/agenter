@@ -7,3 +7,10 @@ sdd/
 *.tsbuildinfo
 apps/web/src/**/*.js
 apps/web/src/**/*.d.ts
+
+# Local editable configuration and backups
+config/agenter.json
+config/agenter.json.bak
+config/agenter.json.tmp
+skills/**/SKILL.md.bak
+skills/**/SKILL.md.tmp

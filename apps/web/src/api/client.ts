@@ -1,5 +1,6 @@
 // apps/web/src/api/client.ts
 import type { AgentEvent, Chat, StoredMessage, ProvidersResponse, SkillsResponse, McpResponse, NewSkillInput, SkillSummary, SendMessageOptions } from "./types.js";
+import type { Settings, RequestContext, CompactResult } from "./types.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -66,7 +67,8 @@ function decodeEvent(value: unknown): AgentEvent {
 
 async function json<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status} ${response.statusText}`);
+    const body: unknown = await response.json().catch(() => undefined);
+    throw new Error(isRecord(body) && typeof body.error === "string" ? body.error : `Request failed: ${response.status} ${response.statusText}`);
   }
   return response.json() as Promise<T>;
 }
@@ -118,6 +120,12 @@ export async function getChat(id: string): Promise<{ chat: Chat; messages: Store
   return json(await fetch(`/api/chats/${id}`));
 }
 
+export async function compactChat(id: string, options: SendMessageOptions = {}, signal?: AbortSignal): Promise<CompactResult> {
+  const value: unknown = await json(await fetch(`/api/chats/${id}/compact`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(options), ...(signal ? { signal } : {}) }));
+  if (!isRecord(value) || typeof value.summary !== "string" || typeof value.provider !== "string" || typeof value.model !== "string" || !Number.isInteger(value.compactedMessages) || typeof value.beforeTokens !== "number" || typeof value.afterTokens !== "number") throw new Error("Некорректный ответ сжатия контекста");
+  return value as unknown as CompactResult;
+}
+
 export async function deleteChat(id: string): Promise<void> {
   const response = await fetch(`/api/chats/${id}`, { method: "DELETE" });
   if (!response.ok) {
@@ -125,11 +133,12 @@ export async function deleteChat(id: string): Promise<void> {
   }
 }
 
-export async function* sendMessage(chatId: string, content: string, options: SendMessageOptions = {}): AsyncGenerator<AgentEvent> {
+export async function* sendMessage(chatId: string, content: string, options: SendMessageOptions = {}, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
   const response = await fetch(`/api/chats/${chatId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ content, ...options }),
+    ...(signal ? { signal } : {}),
   });
 
   if (!response.ok || !response.body) {
@@ -139,7 +148,9 @@ export async function* sendMessage(chatId: string, content: string, options: Sen
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let terminal = false;
 
+  try {
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -158,7 +169,33 @@ export async function* sendMessage(chatId: string, content: string, options: Sen
       } catch {
         throw new Error("Invalid stream event");
       }
-      yield decodeEvent(value);
+      const event = decodeEvent(value);
+      if (event.type === "run.completed" || event.type === "run.error") terminal = true;
+      yield event;
+      if (terminal) return;
     }
   }
+  if (!terminal) throw new Error("Ответ прерван до завершения. Можно повторить запрос.");
+  } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
+}
+
+export async function getSettings(): Promise<{ settings: Settings; environment: Record<string, boolean> }> {
+  return json(await fetch("/api/settings"));
+}
+export async function saveSettings(settings: Settings): Promise<{ settings: Settings }> {
+  return json(await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) }));
+}
+export async function testConnection(settings: Settings, kind: "model" | "mcp", id: string): Promise<{ ok: boolean; tools?: Array<{ name: string; description: string }> }> {
+  return json(await fetch("/api/settings/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ settings, kind, id }) }));
+}
+export async function getSkill(id: string): Promise<NewSkillInput> { return json(await fetch(`/api/skills/${encodeURIComponent(id)}`)); }
+export async function updateSkill(input: NewSkillInput): Promise<SkillSummary> {
+  return json(await fetch(`/api/skills/${encodeURIComponent(input.id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }));
+}
+export async function removeSkill(id: string): Promise<void> {
+  const response = await fetch(`/api/skills/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!response.ok) await json(response);
+}
+export async function previewContext(chatId: string, content: string, options: SendMessageOptions, signal?: AbortSignal): Promise<{ providerId: string; model: string; context: RequestContext }> {
+  return json(await fetch("/api/context", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chatId, content, ...options }), signal }));
 }

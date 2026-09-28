@@ -19,6 +19,12 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);
 
+CREATE TABLE IF NOT EXISTS chat_context_checkpoints (
+  chat_id TEXT PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE,
+  through_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  summary TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS message_contexts (
   message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
   payload TEXT NOT NULL

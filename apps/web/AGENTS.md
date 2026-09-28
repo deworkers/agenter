@@ -16,8 +16,14 @@ SSE parsing belong in `src/api/` and composables.
   defaultProviderId }` catalog shape.
 - Keep rendering safe. Avoid introducing `v-html`; if trusted markdown needs
   rendering, define and test an explicit sanitization boundary first.
-- Skills, tools, MCP panels, and richer model UX are later-phase work unless
-  their plan is explicitly active.
+- Settings, skills/MCP editing, context accounting and responsive drawers are
+  covered by the approved 2026-09-28 plan. Keep transport/state in API and
+  composables; render Markdown only through the DOMPurify boundary.
+- Slash commands are consumed before sending a prompt. Keep the last context
+  estimate visible while refreshing; the progress bar excludes output reserve.
+  Sidebar capability controls only select skills/MCP; settings dialogs own
+  resource creation/editing. `/compact` uses its dedicated API and must preserve
+  the displayed conversation and draft on failure/cancellation.
 
 ## Workflow
 

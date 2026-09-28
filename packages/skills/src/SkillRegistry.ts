@@ -1,5 +1,5 @@
 // packages/skills/src/SkillRegistry.ts
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { stringify as stringifyYaml } from "yaml";
 import { parseSkillFile } from "./parseSkillFile.js";
@@ -27,8 +27,9 @@ export class SkillRegistry {
       const skillFilePath = path.join(this.skillsDir, entry.name, "SKILL.md");
       if (!existsSync(skillFilePath)) continue;
 
-      const { name, description } = parseSkillFile(readFileSync(skillFilePath, "utf-8"));
-      this.metadata.set(entry.name, { id: entry.name, name, description });
+      const raw = readFileSync(skillFilePath, "utf-8");
+      const { name, description, enabled } = parseSkillFile(raw);
+      this.metadata.set(entry.name, { id: entry.name, name, description, ...(enabled === false ? { enabled: false } : {}) });
     }
   }
 
@@ -37,7 +38,7 @@ export class SkillRegistry {
   }
 
   getContent(id: string): string | undefined {
-    if (!this.metadata.has(id)) return undefined;
+    if (!this.metadata.has(id) || this.metadata.get(id)?.enabled === false) return undefined;
 
     const skillFilePath = path.join(this.skillsDir, id, "SKILL.md");
     const { body } = parseSkillFile(readFileSync(skillFilePath, "utf-8"));
@@ -67,5 +68,42 @@ export class SkillRegistry {
     const metadata = { id, name: name.trim(), description: description.trim() };
     this.metadata.set(id, metadata);
     return metadata;
+  }
+
+  get(id: string): NewSkillInput | undefined {
+    const metadata = this.metadata.get(id);
+    if (!metadata) return undefined;
+    const { body } = parseSkillFile(readFileSync(this.skillPath(id), "utf8"));
+    return { ...metadata, instructions: body.trimEnd() };
+  }
+
+  update(input: NewSkillInput): SkillMetadata {
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(input.id) || !this.metadata.has(input.id)) throw new RangeError("Unknown skill id");
+    if (!input.name.trim() || !input.description.trim() || !input.instructions.trim() || input.name.length > 120 || input.description.length > 500 || input.instructions.length > 100_000 || (input.enabled !== undefined && typeof input.enabled !== "boolean")) throw new RangeError("Invalid skill fields or size limits");
+    const target = this.skillPath(input.id);
+    const metadata = { id: input.id, name: input.name.trim(), description: input.description.trim(), ...(input.enabled === false ? { enabled: false } : {}) };
+    const content = `---\n${stringifyYaml({ name: metadata.name, description: metadata.description, ...(input.enabled === false ? { enabled: false } : {}) })}---\n\n${input.instructions.trim()}\n`;
+    writeFileSync(`${target}.tmp`, content, "utf8");
+    copyFileSync(target, `${target}.bak`);
+    renameSync(`${target}.tmp`, target);
+    this.metadata.set(input.id, metadata);
+    return metadata;
+  }
+
+  remove(id: string): void {
+    if (!this.metadata.has(id)) throw new RangeError("Unknown skill id");
+    const target = this.skillPath(id);
+    if (existsSync(`${target}.bak`)) unlinkSync(`${target}.bak`);
+    renameSync(target, `${target}.bak`);
+    this.metadata.delete(id);
+  }
+
+  private skillPath(id: string): string {
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(id)) throw new RangeError("Invalid skill id");
+    const directory = path.join(this.skillsDir, id);
+    if (lstatSync(directory).isSymbolicLink()) throw new RangeError("Symbolic link skills cannot be edited");
+    const target = path.join(directory, "SKILL.md");
+    if (lstatSync(target).isSymbolicLink()) throw new RangeError("Symbolic link skills cannot be edited");
+    return target;
   }
 }

@@ -14,12 +14,16 @@ export interface SendMessageOptions {
   routingContext?: RoutingContext;
   skillId?: string;
   mcpServerIds?: string[];
+  signal?: AbortSignal;
+  historyLimit?: number;
 }
+
+export interface RuntimeBinding { runtime: AgentRuntime; tools?: ToolRegistry; release(): void }
 
 export class ChatService {
   constructor(
     private readonly storage: ChatStorage,
-    private readonly runtime: AgentRuntime,
+    private readonly runtime: AgentRuntime | (() => RuntimeBinding),
     private readonly skills: SkillRegistry,
     private readonly tools?: ToolRegistry
   ) {}
@@ -44,17 +48,39 @@ export class ChatService {
   }
 
   async *sendMessage(chatId: string, content: string, options: SendMessageOptions = {}): AsyncGenerator<AgentEvent> {
+    const binding = this.acquire();
+    try {
+      yield* binding.runtime.runTurn(chatId, content, this.turnOptions(options, binding.tools));
+    } finally { binding.release(); }
+  }
+
+  preview(chatId: string, content: string, options: SendMessageOptions = {}) {
+    const binding = this.acquire();
+    try { return binding.runtime.previewTurn(chatId, content, this.turnOptions(options, binding.tools)); }
+    finally { binding.release(); }
+  }
+
+  async compact(chatId: string, options: SendMessageOptions = {}) {
+    const binding = this.acquire();
+    try { return await binding.runtime.compact(chatId, this.turnOptions(options, binding.tools)); }
+    finally { binding.release(); }
+  }
+
+  private acquire(): RuntimeBinding {
+    return typeof this.runtime === "function" ? this.runtime() : { runtime: this.runtime, tools: this.tools, release() {} };
+  }
+
+  private turnOptions(options: SendMessageOptions, tools?: ToolRegistry) {
     const { skillId, mcpServerIds = [], ...rest } = options;
     const selectedServers = new Set(mcpServerIds);
-    const allowedToolNames = (this.tools?.list() ?? [])
+    const allowedToolNames = (tools?.list() ?? [])
       .filter((tool) => tool.safety === "safe" &&
         (tool.source?.kind !== "mcp" || (tool.source.serverId !== undefined && selectedServers.has(tool.source.serverId))))
       .map(({ name }) => name);
     const runtimeOptions = { ...rest, allowedToolNames };
 
     if (!skillId) {
-      yield* this.runtime.runTurn(chatId, content, runtimeOptions);
-      return;
+      return runtimeOptions;
     }
 
     const activeSkillContent = this.skills.getContent(skillId);
@@ -62,11 +88,11 @@ export class ChatService {
       throw new Error(`Unknown skill "${skillId}"`);
     }
 
-    yield* this.runtime.runTurn(chatId, content, {
+    return {
       ...runtimeOptions,
       activeSkillId: skillId,
       activeSkillContent,
       routingContext: { ...rest.routingContext, activeSkill: skillId },
-    });
+    };
   }
 }

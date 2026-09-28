@@ -7,13 +7,29 @@ export function useChats() {
   const activeChat = ref<Chat | null>(null);
   const messages = ref<DisplayMessage[]>([]);
   const isStreaming = ref(false);
+  const isCompacting = ref(false);
+  const contextRevision = ref(0);
+  let controller: AbortController | undefined;
+  let openSequence = 0;
+  function stopGeneration(): void { controller?.abort(); }
+
+  async function compact(options: SendMessageOptions = {}) {
+    if (!activeChat.value || isStreaming.value || isCompacting.value) return undefined;
+    isCompacting.value = true; controller = new AbortController();
+    try {
+      const result = await client.compactChat(activeChat.value.id, options, controller.signal);
+      contextRevision.value++; return result;
+    } finally { isCompacting.value = false; controller = undefined; }
+  }
 
   async function refreshChats(): Promise<void> {
     chats.value = await client.listChats();
   }
 
   async function openChat(chatId: string): Promise<void> {
+    const sequence = ++openSequence;
     const result = await client.getChat(chatId);
+    if (sequence !== openSequence) return;
     activeChat.value = result.chat;
     messages.value = result.messages;
   }
@@ -34,7 +50,7 @@ export function useChats() {
   }
 
   async function sendMessage(content: string, options: SendMessageOptions = {}): Promise<void> {
-    if (!activeChat.value || isStreaming.value) return;
+    if (!activeChat.value || isStreaming.value || isCompacting.value) return;
     const chatId = activeChat.value.id;
     const title = content.trim().replace(/\s+/g, " ");
     activeChat.value.title = title;
@@ -67,10 +83,11 @@ export function useChats() {
     messages.value.push(assistantMessage);
     const assistant = messages.value.at(-1)!;
     isStreaming.value = true;
+    controller = new AbortController();
     const startedAt = Date.now();
 
     try {
-      for await (const event of client.sendMessage(chatId, content, options)) {
+      for await (const event of client.sendMessage(chatId, content, options, controller.signal)) {
         if (event.type === "run.started") {
           assistant.provider = event.provider;
           assistant.model = event.model;
@@ -91,18 +108,21 @@ export function useChats() {
           for (const tool of assistant.tools ?? []) {
             if (tool.status === "running") tool.status = "error";
           }
+        } else if (event.type === "run.completed") {
+          assistant.usage = event.usage;
         }
       }
     } catch (cause) {
-      assistant.error = cause instanceof Error ? cause.message : String(cause);
+      assistant.error = controller.signal.aborted ? "Генерация остановлена." : cause instanceof Error ? cause.message : String(cause);
       for (const tool of assistant.tools ?? []) {
         if (tool.status === "running") tool.status = "error";
       }
     } finally {
       assistant.durationMs = Date.now() - startedAt;
       isStreaming.value = false;
+      controller = undefined;
     }
   }
 
-  return { chats, activeChat, messages, isStreaming, refreshChats, openChat, newChat, removeChat, sendMessage };
+  return { chats, activeChat, messages, isStreaming, isCompacting, contextRevision, compact, refreshChats, openChat, newChat, removeChat, sendMessage, stopGeneration };
 }

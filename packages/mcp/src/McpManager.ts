@@ -55,8 +55,8 @@ export class McpManager {
           env: serverConfig.env,
         });
       try {
-        await client.connect(transport);
-        const response = await client.listTools();
+        await client.connect(transport, { timeout: 10_000 });
+        const response = await client.listTools({}, { timeout: 10_000 });
         const discovered = response.tools as McpTool[];
         const seen = new Set<string>();
         const adapted = discovered.map((tool) => {
@@ -68,10 +68,10 @@ export class McpManager {
             name,
             description: tool.description ?? "",
             inputSchema: tool.inputSchema,
-            safety: "safe" as const,
+            safety: serverConfig.allowedTools === undefined || serverConfig.allowedTools.includes(tool.name) ? "safe" as const : "disabled" as const,
             source: { kind: "mcp" as const, serverId },
-            execute: async (args: unknown) => {
-              const result = await client.callTool({ name: tool.name, arguments: args as Record<string, unknown> });
+            execute: async (args: unknown, signal?: AbortSignal) => {
+              const result = await client.callTool({ name: tool.name, arguments: args as Record<string, unknown> }, undefined, { signal, timeout: 120_000 });
               if (result.isError) throw new Error(`MCP tool "${name}" failed.`);
               return result;
             },

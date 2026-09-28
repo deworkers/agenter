@@ -4,6 +4,9 @@ export type ChatRole = "system" | "user" | "assistant";
 export interface ProviderSummary {
   id: string;
   model: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  label?: string;
 }
 
 export interface ProvidersResponse {
@@ -15,6 +18,7 @@ export interface SkillSummary {
   id: string;
   name: string;
   description: string;
+  enabled?: boolean;
 }
 
 export interface NewSkillInput extends SkillSummary {
@@ -25,6 +29,26 @@ export interface RequestContext {
   systemPrompt: string;
   skill?: { id: string; content: string };
   tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+  budget?: ContextBudget;
+}
+
+export interface ContextBudget {
+  contextWindow: number; outputReserve: number; usedTokens: number; availableTokens: number;
+  estimated: true; overLimit: boolean;
+  breakdown: { system: number; skill: number; tools: number; history: number; message: number; results: number };
+}
+export interface ModelSettings {
+  type: "openai-compatible"; baseUrl: string; apiKey: string; model: string;
+  label?: string; contextWindow?: number; maxOutputTokens?: number; timeoutMs?: number;
+  supportsTools?: boolean; enabled?: boolean;
+}
+export interface ServerSettings {
+  transport?: "stdio" | "sse"; url?: string; command?: string; args?: string[];
+  env?: Record<string, string>; allowedTools?: string[]; enabled?: boolean;
+}
+export interface Settings {
+  version: 1; defaultProvider: string; providers: Record<string, ModelSettings>;
+  routes: Record<string, { provider: string }>; mcpServers: Record<string, ServerSettings>;
 }
 
 export interface SkillsResponse {
@@ -41,6 +65,7 @@ export interface McpToolSummary {
   description: string;
   inputSchema: Record<string, unknown>;
   source: { kind: "mcp"; serverId: string };
+  safety?: "safe" | "disabled" | "approval-required";
 }
 
 export interface McpResponse {
@@ -64,11 +89,20 @@ export interface StoredMessage {
   model: string | null;
   createdAt: string;
   context?: RequestContext;
+  tools?: ToolActivity[];
+  durationMs?: number;
+  usage?: TokenUsage;
+  error?: string;
 }
 
 export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
+}
+
+export interface CompactResult {
+  summary: string; provider: string; model: string; compactedMessages: number;
+  beforeTokens: number; afterTokens: number; usage?: TokenUsage;
 }
 
 export type AgentEvent =
@@ -85,6 +119,7 @@ export interface SendMessageOptions {
   mode?: "manual" | "auto";
   skillId?: string;
   mcpServerIds?: string[];
+  historyLimit?: number;
 }
 
 export interface ToolActivity {

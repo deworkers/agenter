@@ -5,6 +5,33 @@ import { useChats } from "./useChats.js";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("sending with a selected provider", () => {
+  it("compacts through a separate endpoint without adding command messages to history", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ summary: "Summary", provider: "local", model: "test", compactedMessages: 2, beforeTokens: 100, afterTokens: 20 }));
+    vi.stubGlobal("fetch", fetch);
+    const state = useChats(); state.activeChat.value = { id: "c", title: "Existing", createdAt: "", updatedAt: "" };
+    state.messages.value = [{ id: "m", chatId: "c", role: "user", content: "Original", provider: null, model: null, createdAt: "" }];
+    const result = await state.compact({ providerId: "local", mode: "manual" });
+    expect(fetch).toHaveBeenCalledWith("/api/chats/c/compact", expect.objectContaining({ body: JSON.stringify({ providerId: "local", mode: "manual" }) }));
+    expect(result?.summary).toBe("Summary"); expect(state.messages.value).toHaveLength(1);
+    expect(state.activeChat.value.title).toBe("Existing"); expect(state.isCompacting.value).toBe(false);
+  });
+  it("lets Stop abort compaction and unlocks the composer", async () => {
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    })));
+    const state = useChats(); state.activeChat.value = { id: "c", title: "Chat", createdAt: "", updatedAt: "" };
+    const pending = state.compact(); state.stopGeneration();
+    await expect(pending).rejects.toThrow(); expect(state.isCompacting.value).toBe(false);
+  });
+  it("aborts the active request when Stop is pressed", async () => {
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    })));
+    const state = useChats(); state.activeChat.value = { id: "c", title: "Chat", createdAt: "", updatedAt: "" };
+    const pending = state.sendMessage("hi"); state.stopGeneration(); await pending;
+    expect(state.isStreaming.value).toBe(false);
+    expect(state.messages.value.at(-1)?.error).toContain("остановлена");
+  });
   it("updates the chat title and stores streamed context under the user message", async () => {
     const context = { systemPrompt: "Base", skill: { id: "review", content: "Review" }, tools: [] };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response([

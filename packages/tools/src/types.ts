@@ -6,12 +6,12 @@ export interface Tool {
   inputSchema: Record<string, unknown>;
   safety: ToolSafety;
   source?: { kind: "local" | "mcp"; serverId?: string };
-  execute(args: unknown): Promise<unknown>;
+  execute(args: unknown, signal?: AbortSignal): Promise<unknown>;
 }
 
 export interface ToolRegistry {
   register(tool: Tool): void;
   list(): Tool[];
   get(name: string): Tool | undefined;
-  execute(name: string, args: unknown): Promise<unknown>;
+  execute(name: string, args: unknown, signal?: AbortSignal): Promise<unknown>;
 }

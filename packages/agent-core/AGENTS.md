@@ -20,8 +20,13 @@
 - Preserve the event protocol: `run.started`, `text.delta`,
   `run.completed`, and `run.error`. Add tool events only with the approved
   tool-loop plan.
-- Router, skills, ToolRegistry, MCP, and tool-loop behavior is not assumed to
-  exist in the current implementation. Treat plans as plans until code lands.
+- The runtime has a bounded tool loop, context budget estimates, preview and
+  cancellation. Keep all concrete configuration, tokenizer/provider and MCP
+  dependencies outside this package. Estimated occupancy and cumulative usage
+  are different quantities.
+- Compaction uses provider/storage interfaces, no tools, and bounded requests.
+  Save a summary checkpoint only after complete, uncancelled generation. Apply
+  it to subsequent context while keeping original stored messages unchanged.
 
 ## Workflow
 

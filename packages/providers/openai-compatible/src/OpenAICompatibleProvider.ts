@@ -6,6 +6,10 @@ export interface OpenAICompatibleProviderConfig {
   apiKey: string;
   model: string;
   contextWindow?: number;
+  maxOutputTokens?: number;
+  timeoutMs?: number;
+  supportsTools?: boolean;
+  label?: string;
 }
 
 interface ChatCompletionChunk {
@@ -49,20 +53,28 @@ function toWireMessage(message: LlmMessage): Record<string, unknown> {
 export class OpenAICompatibleProvider implements LlmProvider {
   readonly id: string;
   readonly model: string;
+  readonly label: string | undefined;
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly contextWindow: number;
+  private readonly maxOutputTokens: number;
+  private readonly timeoutMs: number;
+  private readonly toolsEnabled: boolean;
 
   constructor(config: OpenAICompatibleProviderConfig) {
     this.id = config.id;
     this.model = config.model;
-    this.baseUrl = config.baseUrl;
+    this.label = config.label;
+    this.baseUrl = config.baseUrl.replace(/\/+$/, "");
     this.apiKey = config.apiKey;
     this.contextWindow = config.contextWindow ?? 8192;
+    this.maxOutputTokens = config.maxOutputTokens ?? 1024;
+    this.timeoutMs = config.timeoutMs ?? 120_000;
+    this.toolsEnabled = config.supportsTools ?? true;
   }
 
   supportsTools(): boolean {
-    return true;
+    return this.toolsEnabled;
   }
 
   supportsVision(): boolean {
@@ -73,12 +85,15 @@ export class OpenAICompatibleProvider implements LlmProvider {
     return this.contextWindow;
   }
 
+  getMaxOutputTokens(): number { return this.maxOutputTokens; }
+
   async *chat(request: LlmRequest): AsyncIterable<LlmEvent> {
     let response: Response;
 
     try {
       response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
+        signal: AbortSignal.any([AbortSignal.timeout(this.timeoutMs), ...(request.signal ? [request.signal] : [])]),
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           "Content-Type": "application/json",
@@ -88,6 +103,8 @@ export class OpenAICompatibleProvider implements LlmProvider {
           messages: request.messages.map(toWireMessage),
           ...(request.tools ? { tools: request.tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })) } : {}),
           stream: true,
+          stream_options: { include_usage: true },
+          max_tokens: request.maxOutputTokens ?? this.maxOutputTokens,
         }),
       });
     } catch (error) {
@@ -118,6 +135,7 @@ export class OpenAICompatibleProvider implements LlmProvider {
     let completionTokens = 0;
     const fragments = new Map<number, { id: string; name: string; arguments: string }>();
 
+    try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -186,6 +204,10 @@ export class OpenAICompatibleProvider implements LlmProvider {
       yield { type: "error", message: "Provider stream ended without a finish reason" };
     } else {
       yield { type: "done", usage: promptTokens || completionTokens ? { promptTokens, completionTokens } : undefined };
+    }
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
     }
   }
 }

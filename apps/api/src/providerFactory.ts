@@ -12,6 +12,10 @@ export function buildProviderRegistry(config: Pick<AppConfig, "providers" | "def
       apiKey: entry.apiKey,
       model: entry.model,
       contextWindow: entry.contextWindow,
+      maxOutputTokens: entry.maxOutputTokens,
+      timeoutMs: entry.timeoutMs,
+      supportsTools: entry.supportsTools,
+      label: entry.label,
     });
     registry.register(provider);
   }

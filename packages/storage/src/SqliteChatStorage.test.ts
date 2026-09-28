@@ -1,10 +1,38 @@
 // packages/storage/src/SqliteChatStorage.test.ts
 import { unlinkSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SqliteChatStorage } from "./SqliteChatStorage.js";
 
+it("persists compacted context separately without removing conversation messages", () => {
+  const filePath = path.join(tmpdir(), `agenter-checkpoint-${randomUUID()}.db`);
+  let storage: SqliteChatStorage | undefined = new SqliteChatStorage(filePath);
+  try {
+    const chat = storage.createChat("Compact");
+    const message = storage.addMessage({ chatId: chat.id, role: "user", content: "Original" });
+    storage.saveContextCheckpoint(chat.id, { throughMessageId: message.id, summary: "Summary" });
+    storage.close(); storage = undefined;
+    storage = new SqliteChatStorage(filePath);
+    expect(storage.getContextCheckpoint(chat.id)).toEqual({ throughMessageId: message.id, summary: "Summary" });
+    expect(storage.listMessages(chat.id)[0]?.content).toBe("Original");
+    storage.deleteChat(chat.id);
+    expect(storage.getContextCheckpoint(chat.id)).toBeUndefined();
+  } finally { storage?.close(); unlinkSync(filePath); }
+});
+
 describe("SqliteChatStorage", () => {
+  it("restores tool calls, usage and duration with the assistant message", () => {
+    const local = new SqliteChatStorage(":memory:");
+    try {
+      const chat = local.createChat("test");
+      const user = local.addMessage({ chatId: chat.id, role: "user", content: "read" });
+      local.completeRun({ chatId: chat.id, messageId: user.id, provider: "local", model: "test", status: "success", durationMs: 123, tokensIn: 20, tokensOut: 10 }, [{ toolName: "read", arguments: "{}", result: '{"text":"ok"}', status: "success" }], { chatId: chat.id, role: "assistant", content: "done" });
+      expect(local.listMessages(chat.id).at(-1)).toMatchObject({ durationMs: 123, usage: { promptTokens: 20, completionTokens: 10 }, tools: [{ name: "read", arguments: {}, result: { text: "ok" }, status: "completed" }] });
+    } finally { local.close(); }
+  });
   let storage: SqliteChatStorage;
 
   beforeEach(() => {
@@ -163,7 +191,8 @@ describe("SqliteChatStorage", () => {
     );
 
     expect(run.status).toBe("error");
-    expect(storage.listMessages(chat.id)).toEqual([userMessage]);
+    expect(storage.listMessages(chat.id).filter(({ role }) => role === "user")).toEqual([userMessage]);
+    expect(storage.listMessages(chat.id).at(-1)).toMatchObject({ role: "assistant", error: "Запрос не завершён успешно." });
   });
 
   it("rolls back the assistant, run, tool calls, and chat timestamp if a tool-call insert fails", () => {

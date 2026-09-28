@@ -1,0 +1,32 @@
+import { effectScope, nextTick, ref } from "vue";
+import { afterEach, expect, it, vi } from "vitest";
+import { previewContext } from "../api/client.js";
+import { useContext } from "./useContext.js";
+vi.mock("../api/client.js", () => ({ previewContext: vi.fn() }));
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.resetAllMocks(); });
+const result = (usedTokens: number) => ({ providerId: "local", model: "test", context: { systemPrompt: "", tools: [], budget: { contextWindow: 64000, outputReserve: 32000, usedTokens, availableTokens: 32000 - usedTokens, estimated: true as const, overLimit: false, breakdown: { system: 14, skill: 0, tools: 0, history: 0, message: usedTokens - 14, results: 0 } } } });
+it("keeps the last estimate visible while typing and during a failed refresh", async () => {
+  vi.useFakeTimers();
+  vi.mocked(previewContext).mockResolvedValueOnce(result(14)).mockRejectedValueOnce(new Error("offline"));
+  const text = ref(""); const scope = effectScope();
+  const state = scope.run(() => useContext(() => ({ chatId: "c", content: text.value, options: {}, revision: 0, streaming: false })))!;
+  await vi.advanceTimersByTimeAsync(250);
+  text.value = "hello"; await nextTick();
+  expect(state.budget.value?.usedTokens).toBe(14);
+  expect(state.updating.value).toBe(true);
+  await vi.advanceTimersByTimeAsync(250);
+  expect(state.budget.value?.usedTokens).toBe(14);
+  expect(state.error.value).toContain("недоступна");
+  expect(state.updating.value).toBe(false);
+  scope.stop();
+});
+it("ignores a stale estimate after the draft changes", async () => {
+  vi.useFakeTimers();
+  let resolveOld!: (value: ReturnType<typeof result>) => void;
+  vi.mocked(previewContext).mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; })).mockResolvedValueOnce(result(30));
+  const text = ref("first"); const scope = effectScope();
+  const state = scope.run(() => useContext(() => ({ chatId: "c", content: text.value, options: {}, revision: 0, streaming: false })))!;
+  await vi.advanceTimersByTimeAsync(250); text.value = "second"; await nextTick();
+  resolveOld(result(90)); await vi.advanceTimersByTimeAsync(250);
+  expect(state.budget.value?.usedTokens).toBe(30); scope.stop();
+});

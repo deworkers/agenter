@@ -14,6 +14,16 @@ Vitest. Add no dependency unless the plan is amended with an exact version.
 
 **Spec:** `PROMT.md` §§17–20, 21, 23, 24 (Phase 9), and the project `AGENTS.md`.
 
+## Implemented subset (2026-09-28)
+
+The separately approved settings/context/mobile scope now includes cancellation
+through the SSE route, runtime, provider fetch and MCP calls, provider/catalog
+timeouts, terminal stream checks, tool response size limits, configurable MCP
+allowlists, and restoring persisted tool activity/usage/duration. See
+`2026-09-28-settings-context-mobile.md` for verification. This does not complete
+Phase 9: structured redacted logging, transient retry policy, the full failure
+matrix and the remaining security/DoD audit still require their own work.
+
 ## Required policies
 
 - Provider requests have a configured timeout and accept `AbortSignal`.

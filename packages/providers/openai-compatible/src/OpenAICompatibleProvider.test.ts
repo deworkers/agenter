@@ -10,6 +10,20 @@ function sseResponse(lines: string[]): Response {
 }
 
 describe("OpenAICompatibleProvider", () => {
+  it("aborts downstream fetch and sends configured output reserve with usage requested", async () => {
+    let signal: AbortSignal | undefined;
+    let body: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => {
+      signal = init.signal as AbortSignal; body = JSON.parse(init.body as string) as Record<string, unknown>;
+      return new Promise((_resolve, reject) => { signal!.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError"))); });
+    }));
+    const provider = new OpenAICompatibleProvider({ id: "test", model: "test", baseUrl: "http://localhost/v1", apiKey: "local", maxOutputTokens: 512 });
+    const controller = new AbortController();
+    const stream = provider.chat({ messages: [], signal: controller.signal })[Symbol.asyncIterator]();
+    const pending = stream.next(); controller.abort();
+    expect((await pending).value).toMatchObject({ type: "error" });
+    expect(signal?.aborted).toBe(true); expect(body).toMatchObject({ max_tokens: 512, stream_options: { include_usage: true } });
+  });
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
   });

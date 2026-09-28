@@ -118,6 +118,7 @@ onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", outsidePointer);
   window.removeEventListener("resize", onViewportResize);
 });
+defineExpose({ open: openMenu });
 </script>
 
 <template>

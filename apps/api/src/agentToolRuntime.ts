@@ -6,6 +6,6 @@ export function createAgentToolRuntime(registry: ToolRegistryContract): AgentToo
     listTools: () => registry.list()
       .filter(({ safety }) => safety === "safe")
       .map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
-    execute: (name, args) => registry.execute(name, args),
+    execute: (name, args, signal) => signal ? registry.execute(name, args, signal) : registry.execute(name, args),
   };
 }
