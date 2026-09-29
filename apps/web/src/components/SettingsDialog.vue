@@ -182,7 +182,7 @@ async function persist(): Promise<void> { if (await save()) emit("saved"); }
                 type="number"
                 min="1000"
                 max="3600000"
-              ></label>
+              ><small>Для новых моделей задано 10 минут. Увеличьте таймаут для долгих ответов.</small></label>
               <label class="check-label"><input
                 type="checkbox"
                 :checked="model.enabled!==false"

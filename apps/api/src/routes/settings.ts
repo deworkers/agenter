@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { validateAttachments, validateResponseFormat } from "@agenter/agent-core";
 import { testMcpConnection } from "@agenter/mcp";
 import { interpolateEnv } from "../config.js";
 import { resolveServers, resolveSettings, SettingsStore, validateSettings, type Settings } from "../settings.js";
@@ -53,8 +54,11 @@ export function createContextRouter(service: ChatService): Router {
   router.post("/", (req, res) => {
     const { chatId = "", content = "", providerId, mode, skillId, mcpServerIds = [], historyLimit } = req.body ?? {};
     if (typeof chatId !== "string" || typeof content !== "string" || content.length > 100000 || !Array.isArray(mcpServerIds) || !mcpServerIds.every((id) => typeof id === "string") || (historyLimit !== undefined && (!Number.isInteger(historyLimit) || historyLimit < 0 || historyLimit > 100000))) { res.status(400).json({ error: "Некорректный запрос контекста" }); return; }
-    try { res.json(service.preview(chatId, content, { providerId, mode, skillId, mcpServerIds, historyLimit })); }
-    catch { res.status(400).json({ error: "Контекст недоступен. Проверьте модель и навык." }); }
+    try {
+      const attachments = validateAttachments(req.body?.attachments);
+      const responseFormat = validateResponseFormat(req.body?.responseFormat);
+      res.json(service.preview(chatId, content, { providerId, mode, skillId, mcpServerIds, historyLimit, ...(attachments.length ? { attachments } : {}), ...(responseFormat ? { responseFormat } : {}) }));
+    } catch (error) { res.status(400).json({ error: error instanceof RangeError ? error.message : "Контекст недоступен. Проверьте модель и навык." }); }
   });
   return router;
 }

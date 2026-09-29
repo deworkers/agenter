@@ -48,6 +48,10 @@ describe("buildContext", () => {
 });
 
 describe("buildContext with an active skill", () => {
+  it("places the current output contract after conflicting skill instructions", () => {
+    const messages = buildContext({ systemPrompt: "Base", activeSkillContent: "Save to a local file and report its path.", outputInstructions: "Return the entire document in this response.", history: [], currentMessage: "Create a page" });
+    expect(messages[0]?.content).toBe("Base\n\nSave to a local file and report its path.\n\nReturn the entire document in this response.");
+  });
   it("keeps base instructions and skill content in a single leading system message", () => {
     const result = buildContext({
       systemPrompt: "You are a helpful assistant.",

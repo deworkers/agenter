@@ -681,9 +681,8 @@ llm-agent/
 │       └── SKILL.md
 │
 ├── config/
-│   ├── providers.yaml
-│   ├── routing.yaml
-│   └── mcp.json
+│   ├── agenter.example.json  # versioned template
+│   └── agenter.json          # local working configuration, ignored by Git
 │
 ├── .env.example
 ├── package.json

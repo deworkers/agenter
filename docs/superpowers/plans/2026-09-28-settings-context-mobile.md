@@ -82,3 +82,66 @@ Local-model memory smoke preserved 24 messages and reduced estimated history
 2724 → 458 tokens; the next preview used the persisted summary. SQLite tests
 also reopen the database to verify checkpoint persistence and cascade cleanup.
 Physical mobile keyboard behavior and full Phase 9 work remain outside this check.
+
+## Approved text-document follow-up (2026-09-28)
+
+User requested text file attachments, separate text-only clipboard cards,
+and generated Markdown/HTML documents with download/browser actions.
+Implementation and acceptance are described in `docs/text-files.ru.md`.
+Scope extends this chat UI and context/storage boundaries; no server filesystem
+access, binary uploads, additional provider or tool execution is introduced.
+
+## Response format correction (2026-09-29)
+
+User reported incorrect response-format delivery and requested inspection of
+recent SQLite chats. They showed file-path reports without document content,
+an empty successful file response, and skill delivery instructions following
+the selected format instructions.
+
+- Place a detailed output contract after skill instructions in the same leading
+  system message, while keeping stored context/preview estimates consistent.
+- Deliver one complete fenced HTML/Markdown document in the final response;
+  avoid imaginary paths, writing local files through search tools, and external
+  dependencies unsupported by HTML preview.
+- Reject empty completed file responses with an error run and retained usage.
+- Never export prose as HTML; preserve raw Markdown including code examples,
+  reject unfinished delivery wrappers, and show a missing-format warning.
+- Preserve the original database, skills, chats and default text response behavior.
+
+Verify regression tests, root typecheck/lint/tests, web build, and a fictional
+local-model smoke without persisting a chat.
+
+## Approved configuration and skill follow-up (2026-09-29)
+
+User authorized legacy cleanup and practical skills for web search, Context7
+documentation and complete code delivery with interface design. LLM pre-routing
+is deferred; the existing provider rules remain unchanged.
+
+- Remove providers.yaml, routing.yaml, mcp.json and unused legacy loaders/dependencies.
+  Existing config/agenter.json remains authoritative; a clean install initializes
+  it from tracked agenter.example.json. Invalid existing JSON is never overwritten.
+  The migration described earlier in this plan is historical and superseded.
+- Replace research/code-review scaffolds; adapt the user-provided claude-design
+  instructions with a local backup, and add context7-docs and one-pass-code.
+  Instructions require real sources, available tools and complete delivery in
+  the selected response format, without imaginary filesystem/test capabilities.
+- Include an optional disabled Context7 stdio recipe in the clean-install template.
+  Add Context7 to the current local settings without replacing other models/MCP.
+  Allow only resolve-library-id and query-docs. No key is required for the smoke.
+- Update configuration and skill documentation and verify JSON initialization,
+  schema validation, actual MCP lookup, skill loading and root checks.
+
+Initial regression run failed on the new template/legacy expectations (2 tests),
+then passed after implementation. Context7 v4.1.1 connection/catalog and two
+read-only live calls resolved Vue and returned official watcher-cleanup docs.
+No chat or database write was needed for this check.
+
+Verification: Node v24.19.0; root `npm run typecheck` and `npm run lint` passed.
+All 227 tests passed with
+`npm run test --workspaces --if-present -- --pool=threads --maxWorkers=1 --configLoader=native`.
+Plain `npm test` fails to spawn fork workers with EPERM in this environment.
+Production web build passed with `npm run build --workspace=@agenter/web -- --configLoader=native`.
+Live API listed all five skills and previewed their instructions with nonzero
+skill token estimates. Context7 status is ready; git diff --check is clean.
+This verifies catalog/context wiring and MCP documentation access, not reliable
+obedience to every instruction by every model.

@@ -1,5 +1,6 @@
 // apps/api/src/routes/messages.ts
 import { Router } from "express";
+import { validateAttachments, validateResponseFormat, type TextAttachment, type ResponseFormat } from "@agenter/agent-core";
 import type { ChatService } from "../services/ChatService.js";
 
 export function createMessagesRouter(chatService: ChatService): Router {
@@ -7,8 +8,14 @@ export function createMessagesRouter(chatService: ChatService): Router {
 
   router.post("/:id/messages", async (req, res) => {
     const content = req.body?.content;
-    if (typeof content !== "string" || content.trim().length === 0) {
-      res.status(400).json({ error: "content must be a non-empty string" });
+    let attachments: TextAttachment[];
+    let responseFormat: ResponseFormat | undefined;
+    try {
+      attachments = validateAttachments(req.body?.attachments);
+      responseFormat = validateResponseFormat(req.body?.responseFormat);
+    } catch (error) { res.status(400).json({ error: error instanceof RangeError ? error.message : "Некорректные вложения" }); return; }
+    if (typeof content !== "string" || content.length > 100000 || (!content.trim() && !attachments.length)) {
+      res.status(400).json({ error: "Введите сообщение или добавьте текстовое вложение (промпт — до 100 000 символов)" });
       return;
     }
 
@@ -33,7 +40,7 @@ export function createMessagesRouter(chatService: ChatService): Router {
     res.on("close", disconnect);
 
     try {
-      for await (const event of chatService.sendMessage(req.params.id, content, { providerId, mode, skillId, mcpServerIds, historyLimit, signal: abort.signal })) {
+      for await (const event of chatService.sendMessage(req.params.id, content, { providerId, mode, skillId, mcpServerIds, historyLimit, ...(attachments.length ? { attachments } : {}), ...(responseFormat ? { responseFormat } : {}), signal: abort.signal })) {
         if (abort.signal.aborted || res.destroyed) break;
         res.write(`data: ${JSON.stringify(event)}\n\n`);
       }

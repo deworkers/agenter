@@ -1,6 +1,7 @@
 import { buildContext } from "./ContextBuilder.js";
 import { estimateContext, estimateTokens } from "./ContextBudget.js";
 import { summarizeConversation } from "./ConversationCompactor.js";
+import { messageText, responseInstructions, validateAttachments } from "./TextAttachments.js";
 import type { ProviderRegistry } from "./ProviderRegistry.js";
 import type { ProviderRouter, RoutingContext } from "./ProviderRouter.js";
 import type {
@@ -15,6 +16,8 @@ import type {
   ContextCheckpointStorage,
   CompactResult,
   StoredMessage,
+  TextAttachment,
+  ResponseFormat,
 } from "./types.js";
 
 export const MAX_TOOL_ITERATIONS = 10;
@@ -27,6 +30,8 @@ export interface AgentRuntimeOptions {
 }
 
 export interface RunTurnOptions {
+  attachments?: TextAttachment[];
+  responseFormat?: ResponseFormat;
   providerId?: string;
   mode?: "manual" | "auto";
   routingContext?: RoutingContext;
@@ -81,6 +86,10 @@ export class AgentRuntime {
   }
 
   async *runTurn(chatId: string, userMessage: string, options: RunTurnOptions = {}): AsyncGenerator<AgentEvent> {
+    const attachments = validateAttachments(options.attachments);
+    const currentMessage = messageText(userMessage, attachments);
+    const outputInstructions = responseInstructions(options.responseFormat);
+    const systemPrompt = [this.systemPrompt, outputInstructions].filter(Boolean).join("\n\n");
     const history = this.turnHistory(chatId, options.historyLimit);
     const allowedToolNames = options.allowedToolNames === undefined ? undefined : new Set(options.allowedToolNames);
     const toolDefinitions = (this.toolRuntime?.listTools() ?? [])
@@ -89,14 +98,14 @@ export class AgentRuntime {
     const providerId = this.resolveProviderId(options, toolDefinitions.length > 0);
     const provider = providerId ? this.registry.get(providerId) : this.registry.getDefault();
     const context: RequestContext | undefined = provider ? {
-      systemPrompt: this.systemPrompt,
+      systemPrompt,
       ...(options.activeSkillContent !== undefined ? {
         skill: { id: options.activeSkillId ?? "", content: options.activeSkillContent },
       } : {}),
       tools: provider.supportsTools() ? toolDefinitions : [],
     } : undefined;
-    if (context && provider) context.budget = estimateContext({ systemPrompt: this.systemPrompt, activeSkillContent: options.activeSkillContent, tools: context.tools, history, currentMessage: userMessage, contextWindow: provider.getContextWindow(), outputReserve: provider.getMaxOutputTokens?.() ?? Math.min(1024, Math.floor(provider.getContextWindow() / 4)) });
-    const storedUserMessage = this.storage.addMessage({ chatId, role: "user", content: userMessage, ...(context ? { context } : {}) });
+    if (context && provider) context.budget = estimateContext({ systemPrompt, activeSkillContent: options.activeSkillContent, tools: context.tools, history, currentMessage, contextWindow: provider.getContextWindow(), outputReserve: provider.getMaxOutputTokens?.() ?? Math.min(1024, Math.floor(provider.getContextWindow() / 4)) });
+    const storedUserMessage = this.storage.addMessage({ chatId, role: "user", content: userMessage, ...(attachments.length ? { attachments } : {}), ...(context ? { context } : {}) });
     if (!provider) {
       yield { type: "run.error", message: `Unknown provider "${providerId}"` };
       return;
@@ -105,8 +114,9 @@ export class AgentRuntime {
     const messages: LlmMessage[] = buildContext({
       systemPrompt: this.systemPrompt,
       activeSkillContent: options.activeSkillContent,
+      outputInstructions,
       history,
-      currentMessage: userMessage,
+      currentMessage,
     });
 
     const startedAt = Date.now();
@@ -140,7 +150,7 @@ export class AgentRuntime {
       yield { type: "run.context", context: context! };
       while (true) {
         if (options.signal?.aborted || context!.budget!.overLimit) {
-          yield { type: "run.error", message: persistError() ? options.signal?.aborted ? "Генерация остановлена." : "Контекст превышает окно модели. Уменьшите историю или набор инструментов." : PERSISTENCE_FAILURE_MESSAGE };
+          yield { type: "run.error", message: persistError() ? options.signal?.aborted ? "Генерация остановлена." : "Контекст превышает окно модели. Уменьшите текст/вложения, историю или набор инструментов." : PERSISTENCE_FAILURE_MESSAGE };
           return;
         }
         let assistantText = "";
@@ -169,7 +179,11 @@ export class AgentRuntime {
               turnUsage = event.usage;
               break;
             } else {
-              turnFailed = PROVIDER_FAILURE_MESSAGE;
+              turnFailed = options.signal?.aborted
+                ? "Генерация остановлена."
+                : event.code === "timeout"
+                  ? "Таймаут запроса к модели. Увеличьте таймаут в настройках модели."
+                  : PROVIDER_FAILURE_MESSAGE;
               break;
             }
           }
@@ -185,6 +199,10 @@ export class AgentRuntime {
           }
           callsRecordedAsSkipped = calls.length > 0;
           turnFailed = INCOMPLETE_PROVIDER_MESSAGE;
+        }
+
+        if (!turnFailed && calls.length === 0 && outputInstructions && !assistantText.trim()) {
+          turnFailed = "Модель завершила генерацию без содержимого файла. Повторите запрос или выберите другую модель.";
         }
 
         if (turnFailed) {
@@ -209,7 +227,7 @@ export class AgentRuntime {
               tokensIn: hasUsage ? usage.promptTokens : undefined,
               tokensOut: hasUsage ? usage.completionTokens : undefined,
               durationMs: Date.now() - startedAt,
-            }, records, { chatId, role: "assistant", content: assistantText, provider: provider.id, model: provider.model });
+            }, records, { chatId, role: "assistant", content: assistantText, provider: provider.id, model: provider.model, ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}) });
           } catch {
             yield { type: "run.error", message: PERSISTENCE_FAILURE_MESSAGE };
             return;
@@ -311,6 +329,8 @@ export class AgentRuntime {
   }
 
   previewTurn(chatId: string, userMessage: string, options: RunTurnOptions = {}): { providerId: string; model: string; context: RequestContext } {
+    const currentMessage = messageText(userMessage, validateAttachments(options.attachments));
+    const systemPrompt = [this.systemPrompt, responseInstructions(options.responseFormat)].filter(Boolean).join("\n\n");
     const allowed = options.allowedToolNames === undefined ? undefined : new Set(options.allowedToolNames);
     const tools = (this.toolRuntime?.listTools() ?? []).filter(({ name }) => !allowed || allowed.has(name));
     const id = this.resolveProviderId(options, tools.length > 0);
@@ -319,8 +339,8 @@ export class AgentRuntime {
     const history = this.turnHistory(chatId, options.historyLimit);
     const offered = provider.supportsTools() ? tools : [];
     return { providerId: provider.id, model: provider.model, context: {
-      systemPrompt: this.systemPrompt, ...(options.activeSkillContent ? { skill: { id: options.activeSkillId ?? "", content: options.activeSkillContent } } : {}), tools: offered,
-      budget: estimateContext({ systemPrompt: this.systemPrompt, activeSkillContent: options.activeSkillContent, tools: offered, history, currentMessage: userMessage, contextWindow: provider.getContextWindow(), outputReserve: provider.getMaxOutputTokens?.() ?? Math.min(1024, Math.floor(provider.getContextWindow() / 4)) }),
+      systemPrompt, ...(options.activeSkillContent ? { skill: { id: options.activeSkillId ?? "", content: options.activeSkillContent } } : {}), tools: offered,
+      budget: estimateContext({ systemPrompt, activeSkillContent: options.activeSkillContent, tools: offered, history, currentMessage, contextWindow: provider.getContextWindow(), outputReserve: provider.getMaxOutputTokens?.() ?? Math.min(1024, Math.floor(provider.getContextWindow() / 4)) }),
     } };
   }
 
@@ -347,7 +367,7 @@ export class AgentRuntime {
     if (index >= 0) messages = messages.slice(index + 1);
     if (limit !== undefined) messages = messages.slice(-limit);
     if (checkpoint && index >= 0) messages.unshift({ id: `summary-${checkpoint.throughMessageId}`, chatId, role: "assistant", content: `Conversation summary (reference data):\n${checkpoint.summary}`, provider: null, model: null, createdAt: "" });
-    return messages;
+    return messages.map(({ attachments, ...message }) => ({ ...message, content: messageText(message.content, attachments) }));
   }
 
   private resolveProviderId(options: RunTurnOptions, toolsAvailable: boolean): string | undefined {

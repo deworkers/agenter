@@ -1,4 +1,6 @@
 // apps/web/src/api/types.ts
+import type { TextAttachment, ResponseFormat } from "@agenter/agent-core";
+export type { TextAttachment, ResponseFormat } from "@agenter/agent-core";
 export type ChatRole = "system" | "user" | "assistant";
 
 export interface ProviderSummary {
@@ -85,6 +87,8 @@ export interface StoredMessage {
   chatId: string;
   role: ChatRole;
   content: string;
+  attachments?: TextAttachment[];
+  responseFormat?: ResponseFormat;
   provider: string | null;
   model: string | null;
   createdAt: string;
@@ -115,6 +119,8 @@ export type AgentEvent =
   | { type: "run.error"; message: string };
 
 export interface SendMessageOptions {
+  attachments?: TextAttachment[];
+  responseFormat?: ResponseFormat;
   providerId?: string;
   mode?: "manual" | "auto";
   skillId?: string;

@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "defaultProvider": "local",
+  "providers": {
+    "local": {
+      "type": "openai-compatible",
+      "label": "Локальная модель",
+      "baseUrl": "http://127.0.0.1:8080/v1",
+      "apiKey": "local",
+      "model": "local-model",
+      "contextWindow": 8192,
+      "maxOutputTokens": 1024,
+      "timeoutMs": 600000,
+      "supportsTools": true,
+      "enabled": true
+    }
+  },
+  "routes": {
+    "simple": {
+      "provider": "local"
+    },
+    "coding": {
+      "provider": "local"
+    },
+    "reasoning": {
+      "provider": "local"
+    },
+    "research": {
+      "provider": "local"
+    },
+    "vision": {
+      "provider": "local"
+    }
+  },
+  "mcpServers": {
+    "context7": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ],
+      "enabled": false,
+      "allowedTools": [
+        "resolve-library-id",
+        "query-docs"
+      ]
+    }
+  }
+}

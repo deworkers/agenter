@@ -1,5 +1,5 @@
 // apps/api/src/services/ChatService.ts
-import type { AgentEvent, AgentRuntime, Chat, ChatStorage, RoutingContext, StoredMessage } from "@agenter/agent-core";
+import type { AgentEvent, AgentRuntime, Chat, ChatStorage, RoutingContext, StoredMessage, TextAttachment, ResponseFormat } from "@agenter/agent-core";
 import type { SkillRegistry } from "@agenter/skills";
 import type { ToolRegistry } from "@agenter/tools";
 
@@ -9,6 +9,8 @@ export interface ChatWithMessages {
 }
 
 export interface SendMessageOptions {
+  attachments?: TextAttachment[];
+  responseFormat?: ResponseFormat;
   providerId?: string;
   mode?: "manual" | "auto";
   routingContext?: RoutingContext;

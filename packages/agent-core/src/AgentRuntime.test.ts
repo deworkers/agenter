@@ -143,6 +143,33 @@ describe("conversation compaction", () => {
 });
 
 describe("AgentRuntime.runTurn", () => {
+  it("persists raw prompt and attachments separately, counts them and sends them in user context", async () => {
+    const attachments = [{ id: "f1", name: "notes.md", source: "file" as const, content: "Important evidence ".repeat(30) }];
+    const storage = fakeStorage([{ id: "old", chatId: "c", role: "user", content: "Earlier", attachments, provider: null, model: null, createdAt: "" }]);
+    const requests: import("./types.js").LlmRequest[] = [];
+    const provider = { ...fakeProvider("fake", "test", []), async *chat(request: import("./types.js").LlmRequest): AsyncIterable<LlmEvent> { requests.push(request); yield { type: "text.delta", text: "```html filename=index.html\n<h1>Done</h1>\n```" }; yield { type: "done" }; } };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig));
+    const preview = runtime.previewTurn("c", "Read", { attachments, responseFormat: "html" });
+    expect(preview.context.budget!.breakdown.message).toBeGreaterThan(100);
+    expect(preview.context.budget!.breakdown.history).toBeGreaterThan(100);
+    for await (const event of runtime.runTurn("c", "Read", { attachments, responseFormat: "html", activeSkillContent: "Save files to disk and report paths." })) void event;
+    expect(storage.addMessage).toHaveBeenCalledWith(expect.objectContaining({ content: "Read", attachments }));
+    expect(requests[0]?.messages.at(-1)?.content).toContain("notes.md");
+    expect(requests[0]?.messages.at(-1)?.content).toContain("Important evidence");
+    expect(requests[0]?.messages[0]?.content).toContain("html filename=");
+    expect(requests[0]?.messages[0]?.content?.indexOf("Output delivery contract")).toBeGreaterThan(requests[0]?.messages[0]?.content?.indexOf("Save files to disk") ?? -1);
+    expect(storage.completeRun).toHaveBeenCalledWith(expect.anything(), [], expect.objectContaining({ responseFormat: "html" }));
+  });
+  it.each(["html", "markdown"] as const)("rejects an empty completed %s file response instead of persisting a successful empty answer", async (responseFormat) => {
+    const storage = fakeStorage();
+    const provider = fakeProvider("fake", "test", [{ type: "done", usage: { promptTokens: 6000, completionTokens: 32000 } }]);
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig));
+    const events = [];
+    for await (const event of runtime.runTurn("c", "Create a document", { responseFormat })) events.push(event);
+    expect(events.at(-1)).toEqual({ type: "run.error", message: "Модель завершила генерацию без содержимого файла. Повторите запрос или выберите другую модель." });
+    expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error", tokensOut: 32000 }), []);
+    expect(storage.listMessages("c")).toHaveLength(1);
+  });
   it("records an interrupted run when the consumer disconnects after run.started", async () => {
     const storage = fakeStorage();
     const runtime = new AgentRuntime(registryWith([fakeProvider("fake", "test", [])], "fake"), storage, new ProviderRouter(routingConfig));
@@ -347,6 +374,20 @@ describe("AgentRuntime.runTurn", () => {
     expect(storage.completeRun).toHaveBeenCalledOnce();
     expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error" }), []);
     expect(JSON.stringify(events)).not.toContain("sentinel-secret");
+  });
+
+  it("explains when a provider timeout interrupts streaming", async () => {
+    const storage = fakeStorage();
+    const provider = fakeProvider("fake", "fake-model", [
+      { type: "text.delta", text: "partial response" },
+      { type: "error", message: "Provider request timed out", code: "timeout" },
+    ]);
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig));
+    const events = [];
+    for await (const event of runtime.runTurn("chat-1", "hi")) events.push(event);
+
+    expect(events.at(-1)).toEqual({ type: "run.error", message: "Таймаут запроса к модели. Увеличьте таймаут в настройках модели." });
+    expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error" }), []);
   });
 
   it("sanitizes a provider iterator exception and persists one error run", async () => {

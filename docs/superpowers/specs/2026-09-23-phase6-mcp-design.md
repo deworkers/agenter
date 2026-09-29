@@ -1,5 +1,10 @@
 # Phase 6: MCP stdio Integration Design
 
+Historical phase design. Current configuration is `config/agenter.json`,
+initialized from `agenter.example.json`; legacy files/loaders were removed on
+2026-09-29. For the implemented SSE/stdio setup and allowlists see
+`../../configuration.ru.md` and `../plans/2026-09-28-settings-context-mobile.md`.
+
 ## Goal and scope
 
 Add configured MCP stdio servers to the existing local-first chat backend. The

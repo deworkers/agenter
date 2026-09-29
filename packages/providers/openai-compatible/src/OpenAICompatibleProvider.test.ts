@@ -112,6 +112,22 @@ describe("OpenAICompatibleProvider", () => {
     expect(events).toEqual([{ type: "error", message: "ECONNREFUSED" }]);
   });
 
+  it("reports a configured timeout while reading a streamed response", async () => {
+    let signal: AbortSignal | undefined;
+    vi.mocked(fetch).mockImplementation((_url, init) => {
+      signal = init?.signal as AbortSignal;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) { signal!.addEventListener("abort", () => controller.error(signal!.reason), { once: true }); },
+      });
+      return Promise.resolve(new Response(body));
+    });
+    const provider = new OpenAICompatibleProvider({ id: "test", model: "test", baseUrl: "http://localhost/v1", apiKey: "local", timeoutMs: 10 });
+    const events = [];
+    for await (const event of provider.chat({ messages: [] })) events.push(event);
+
+    expect(events).toEqual([{ type: "error", message: "Provider request timed out", code: "timeout" }]);
+  });
+
   it("reports capabilities and context window from config", () => {
     const provider = new OpenAICompatibleProvider({
       id: "local-fast",

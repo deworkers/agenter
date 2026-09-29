@@ -55,7 +55,7 @@ const chatService = new ChatService(storage, () => {
 
 const app = express();
 app.locals.tools = state.tools;
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "4mb" }));
 
 app.use("/api/chats", createChatsRouter(chatService));
 app.use("/api/chats", createMessagesRouter(chatService));

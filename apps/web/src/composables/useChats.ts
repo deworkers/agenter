@@ -52,7 +52,7 @@ export function useChats() {
   async function sendMessage(content: string, options: SendMessageOptions = {}): Promise<void> {
     if (!activeChat.value || isStreaming.value || isCompacting.value) return;
     const chatId = activeChat.value.id;
-    const title = content.trim().replace(/\s+/g, " ");
+    const title = content.trim().replace(/\s+/g, " ") || options.attachments?.[0]?.name || "Вложения";
     activeChat.value.title = title;
     const listed = chats.value.find((chat) => chat.id === chatId);
     if (listed) {
@@ -64,6 +64,7 @@ export function useChats() {
       chatId,
       role: "user",
       content,
+      ...(options.attachments?.length ? { attachments: options.attachments.map(item => ({ ...item })) } : {}),
       provider: null,
       model: null,
       createdAt: new Date().toISOString(),
@@ -75,6 +76,7 @@ export function useChats() {
       chatId,
       role: "assistant",
       content: "",
+      ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
       provider: null,
       model: null,
       createdAt: new Date().toISOString(),

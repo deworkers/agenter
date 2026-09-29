@@ -1,5 +1,13 @@
 export type ChatRole = "system" | "user" | "assistant";
 
+export interface TextAttachment {
+  id: string;
+  name: string;
+  source: "file" | "clipboard";
+  content: string;
+}
+export type ResponseFormat = "text" | "markdown" | "html";
+
 export interface ChatMessage {
   role: ChatRole;
   content: string;
@@ -56,7 +64,7 @@ export type LlmEvent =
   | { type: "text.delta"; text: string }
   | { type: "tool.call"; call: ToolCall }
   | { type: "done"; usage?: TokenUsage }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; code?: "timeout" };
 
 export interface LlmProvider {
   readonly id: string;
@@ -90,6 +98,8 @@ export interface StoredMessage {
   chatId: string;
   role: ChatRole;
   content: string;
+  attachments?: TextAttachment[];
+  responseFormat?: ResponseFormat;
   provider: string | null;
   model: string | null;
   createdAt: string;
@@ -104,6 +114,8 @@ export interface NewMessageInput {
   chatId: string;
   role: ChatRole;
   content: string;
+  attachments?: TextAttachment[];
+  responseFormat?: ResponseFormat;
   provider?: string;
   model?: string;
   context?: RequestContext;

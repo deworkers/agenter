@@ -46,7 +46,8 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
 
   listChats(): Chat[] {
     const rows = this.db
-      .prepare(`SELECT chats.id, COALESCE((SELECT trim(replace(replace(content, char(10), ' '), char(13), ' '))
+      .prepare(`SELECT chats.id, COALESCE((SELECT COALESCE(NULLIF(trim(replace(replace(content, char(10), ' '), char(13), ' ')), ''),
+        (SELECT json_extract(payload, '$.attachments[0].name') FROM message_documents WHERE message_id = messages.id), 'Вложения')
         FROM messages WHERE chat_id = chats.id AND role = 'user' ORDER BY rowid DESC LIMIT 1), chats.title) AS title,
         chats.created_at, chats.updated_at FROM chats ORDER BY chats.updated_at DESC`)
       .all() as Array<{ id: string; title: string; created_at: string; updated_at: string }>;
@@ -61,7 +62,8 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
 
   getChat(id: string): Chat | undefined {
     const row = this.db
-      .prepare(`SELECT chats.id, COALESCE((SELECT trim(replace(replace(content, char(10), ' '), char(13), ' '))
+      .prepare(`SELECT chats.id, COALESCE((SELECT COALESCE(NULLIF(trim(replace(replace(content, char(10), ' '), char(13), ' ')), ''),
+        (SELECT json_extract(payload, '$.attachments[0].name') FROM message_documents WHERE message_id = messages.id), 'Вложения')
         FROM messages WHERE chat_id = chats.id AND role = 'user' ORDER BY rowid DESC LIMIT 1), chats.title) AS title,
         chats.created_at, chats.updated_at FROM chats WHERE chats.id = ?`)
       .get(id) as { id: string; title: string; created_at: string; updated_at: string } | undefined;
@@ -92,8 +94,10 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
   listMessages(chatId: string): StoredMessage[] {
     const rows = this.db
       .prepare(
-        `SELECT messages.id, chat_id, role, content, provider, model, created_at, message_contexts.payload AS context_json
+        `SELECT messages.id, chat_id, role, content, provider, model, created_at, message_contexts.payload AS context_json,
+         message_documents.payload AS documents_json
          FROM messages LEFT JOIN message_contexts ON message_contexts.message_id = messages.id
+         LEFT JOIN message_documents ON message_documents.message_id = messages.id
          WHERE chat_id = ? ORDER BY messages.rowid ASC`
       )
       .all(chatId) as Array<{
@@ -105,6 +109,7 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
         model: string | null;
         created_at: string;
         context_json: string | null;
+        documents_json: string | null;
       }>;
 
     const messages: StoredMessage[] = rows.map((row) => ({
@@ -116,6 +121,7 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
       model: row.model,
       createdAt: row.created_at,
       ...(row.context_json ? { context: JSON.parse(row.context_json) as StoredMessage["context"] } : {}),
+      ...(row.documents_json ? JSON.parse(row.documents_json) as Pick<StoredMessage, "attachments" | "responseFormat"> : {}),
     }));
     const runs = this.db.prepare("SELECT id, message_id, assistant_message_id, provider, model, status, duration_ms, tokens_in, tokens_out, created_at FROM runs WHERE chat_id = ? ORDER BY rowid").all(chatId) as Array<{ id: string; message_id: string; assistant_message_id: string | null; provider: string; model: string; status: string; duration_ms: number; tokens_in: number | null; tokens_out: number | null; created_at: string }>;
     for (const run of runs) {
@@ -136,6 +142,11 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
 
   addMessage(input: NewMessageInput): StoredMessage {
     const contextJson = input.context ? JSON.stringify(input.context) : undefined;
+    const documents = {
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+      ...(input.responseFormat ? { responseFormat: input.responseFormat } : {}),
+    };
+    const documentsJson = Object.keys(documents).length ? JSON.stringify(documents) : undefined;
     const message: StoredMessage = {
       id: randomUUID(),
       chatId: input.chatId,
@@ -145,6 +156,7 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
       model: input.model ?? null,
       createdAt: new Date().toISOString(),
       ...(input.context ? { context: input.context } : {}),
+      ...documents,
     };
 
     this.db
@@ -165,6 +177,7 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
     if (contextJson) {
       this.db.prepare(`INSERT INTO message_contexts (message_id, payload) VALUES (?, ?)`).run(message.id, contextJson);
     }
+    if (documentsJson) this.db.prepare("INSERT INTO message_documents (message_id, payload) VALUES (?, ?)").run(message.id, documentsJson);
     if (input.role === "user") this.touchChat(input.chatId);
 
     return message;

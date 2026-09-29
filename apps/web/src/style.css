@@ -117,6 +117,39 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .chat-body-empty .composer-wrap { margin-bottom: auto; }
 .composer { border: 1px solid #e4e5e7; border-radius: 22px; background: #fff; box-shadow: 0 9px 35px rgba(30, 35, 42, .06), 0 1px 3px rgba(30, 35, 42, .04); }
 .message-input { padding: 14px 15px 5px 18px; }
+.text-attachments { display: flex; flex-wrap: wrap; gap: 8px; max-height: 190px; overflow: auto; margin: 0 0 10px; padding: 1px; }
+.text-attachment { flex: 1 1 210px; min-width: 0; max-width: 340px; padding: 10px 12px; border: 1px solid #e1e3e5; border-radius: 12px; background: #fafaf9; }
+.attachment-heading { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.attachment-heading strong { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
+.attachment-icon { color: #747b80; font-size: 18px; }
+.text-attachment details { color: #777e87; font-size: 11px; margin-top: 7px; }
+.text-attachment summary { cursor: pointer; }
+.text-attachment pre { overflow: auto; max-height: 160px; margin: 9px 0 0; color: #5d636b; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.text-attachment .attachment-remove { width: 25px; height: 25px; min-height: 25px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #606871; font-size: 18px; }
+.text-attachment .attachment-remove:hover:not(:disabled) { background: #eee; }
+.attachment-download { margin-top: 7px; padding: 0; border: 0; background: none; color: #5d6875; font-size: 11px; }
+.attachment-error { margin: 0 0 10px; color: #b04942; font-size: 12px; }
+.message-input .attach-button { align-self: flex-start; padding: 0; border: 1px solid #e3e4e5; background: white; color: #606772; font-size: 16px; line-height: 1; }
+.message-input .attach-button:hover:not(:disabled) { background: #f1f2f0; }
+.response-format { display: flex; align-items: center; gap: 5px; color: #969ba2; font-size: 11.5px; padding: 0 7px; }
+.response-format select { max-width: 125px; min-height: 29px; border: 0; border-radius: 7px; background: transparent; color: #484d54; font-size: 12px; }
+.answer-files { display: grid; gap: 8px; margin-bottom: 13px; }
+.file-format-warning { margin: 0 0 13px; color: #946528; font-size: 12px; line-height: 1.5; }
+.answer-file { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 13px; border: 1px solid #dfe5df; border-radius: 12px; background: #f8faf7; }
+.answer-file-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; background: #edf1e9; color: #64705b; font-size: 19px; }
+.answer-file-info { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; }
+.answer-file-info strong { font-size: 13px; overflow-wrap: anywhere; }
+.answer-file-info small { color: #92998f; font-size: 11px; }
+.answer-file-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.answer-file-actions button { min-height: 32px; padding: 5px 10px; border: 1px solid #dce1d8; border-radius: 8px; background: white; color: #4e5946; font-size: 12px; }
+.file-preview-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; background: #17202166; }
+.file-preview-dialog { display: flex; flex-direction: column; width: min(1100px, 100%); height: calc(var(--app-height, 100dvh) - 40px); max-height: 950px; overflow: hidden; background: white; border-radius: 16px; box-shadow: 0 20px 80px #0003; }
+.file-preview-dialog header { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.file-preview-dialog header > div { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.file-preview-dialog header strong { overflow-wrap: anywhere; font-size: 14px; }
+.file-preview-dialog header small { color: #969d95; font-size: 11px; }
+.file-preview-dialog header button { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: white; color: #596154; }
+.file-preview-dialog iframe { flex: 1; min-height: 0; width: 100%; border: 0; }
 .message-input-inner { display: flex; align-items: flex-end; gap: 10px; }
 .message-input textarea { flex: 1; min-width: 0; min-height: 49px; max-height: 190px; resize: vertical; padding: 5px 0; border: 0; outline: none; background: transparent; color: var(--text); font-size: 14px; line-height: 1.55; }
 .message-input textarea::placeholder { color: #aaaeb4; }
@@ -334,6 +367,17 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
   .chat-body-empty .composer-wrap { margin-bottom: 0; }
   .chat-body-empty .welcome { margin: auto; }
   .message-input textarea { font-size: 16px; }
+  .text-attachments { max-height: 145px; }
+  .text-attachment { flex-basis: 100%; max-width: none; }
+  .answer-file-actions { width: 100%; }
+  .answer-file-actions button { min-height: 44px; flex: 1; }
+  .file-preview-backdrop { padding: 0; }
+  .file-preview-dialog { width: 100%; height: var(--app-height, 100dvh); max-height: none; border-radius: 0; }
+  .file-preview-dialog header { padding: max(12px, env(safe-area-inset-top)) 12px 12px; gap: 8px; }
+  .file-preview-dialog header button { min-height: 44px; }
+  .composer-controls { align-items: flex-start; }
+  .composer-controls .composer-hint { display: none; }
+  .response-format select { font-size: 16px; max-width: 160px; }
   .message-list { padding: 15px 12px 24px; }
   .message-row { gap: 8px; }
   .assistant-mark { width: 24px; height: 24px; font-size: 17px; }

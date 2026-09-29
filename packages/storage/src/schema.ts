@@ -30,6 +30,11 @@ CREATE TABLE IF NOT EXISTS message_contexts (
   payload TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS message_documents (
+  message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+  payload TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY,
   chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,

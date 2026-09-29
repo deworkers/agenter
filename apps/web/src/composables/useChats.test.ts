@@ -5,6 +5,17 @@ import { useChats } from "./useChats.js";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("sending with a selected provider", () => {
+  it("sends attachment-only messages and retains documents and requested output format", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response('data: {"type":"text.delta","text":"<h1>Done</h1>"}\n\ndata: {"type":"run.completed"}\n\n'));
+    vi.stubGlobal("fetch", fetch);
+    const attachments = [{ id: "f", name: "notes.md", source: "file" as const, content: "Source" }];
+    const state = useChats(); state.activeChat.value = { id: "c", title: "Chat", createdAt: "", updatedAt: "" };
+    await state.sendMessage("", { attachments, responseFormat: "html" });
+    expect(JSON.parse(fetch.mock.calls[0]![1].body)).toMatchObject({ content: "", attachments, responseFormat: "html" });
+    expect(state.messages.value[0]).toMatchObject({ content: "", attachments });
+    expect(state.messages.value[1]).toMatchObject({ responseFormat: "html" });
+    expect(state.activeChat.value.title).toBe("notes.md");
+  });
   it("compacts through a separate endpoint without adding command messages to history", async () => {
     const fetch = vi.fn().mockResolvedValue(Response.json({ summary: "Summary", provider: "local", model: "test", compactedMessages: 2, beforeTokens: 100, afterTokens: 20 }));
     vi.stubGlobal("fetch", fetch);

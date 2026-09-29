@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -11,10 +11,9 @@ const config = () => ({ version: 1, defaultProvider: "local", providers: { local
 } }, routes: Object.fromEntries(["simple", "coding", "reasoning", "research", "vision"].map((key) => [key, { provider: "local" }])), mcpServers: {} });
 
 describe("settings", () => {
-  it("migrates legacy configuration without changing its source and backs up atomic saves", () => {
+  it("initializes one working JSON configuration from its template and backs up atomic saves", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "agenter-settings-")); directories.push(dir);
-    writeFileSync(path.join(dir, "providers.yaml"), 'defaultProvider: local\nproviders:\n  local:\n    type: openai-compatible\n    baseUrl: http://localhost:1234/v1\n    apiKey: "${TEST_MODEL_KEY}"\n    model: test\n');
-    writeFileSync(path.join(dir, "routing.yaml"), "routes:\n" + ["simple", "coding", "reasoning", "research", "vision"].map((key) => `  ${key}:\n    provider: local\n`).join(""));
+    writeFileSync(path.join(dir, "agenter.example.json"), JSON.stringify(config()));
     const store = new SettingsStore(dir);
     const original = store.read();
     expect(original.providers.local?.apiKey).toBe("${TEST_MODEL_KEY}");
@@ -22,7 +21,22 @@ describe("settings", () => {
     store.save(next);
     expect(new SettingsStore(dir).read().providers.local?.model).toBe("changed");
     expect(JSON.parse(readFileSync(path.join(dir, "agenter.json.bak"), "utf8"))).toEqual(original);
-    expect(readFileSync(path.join(dir, "providers.yaml"), "utf8")).toContain("model: test");
+    expect(JSON.parse(readFileSync(path.join(dir, "agenter.example.json"), "utf8"))).toEqual(original);
+    expect(existsSync(path.join(dir, "providers.yaml"))).toBe(false);
+  });
+  it("does not recreate a working configuration from legacy files", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "agenter-settings-")); directories.push(dir);
+    writeFileSync(path.join(dir, "providers.yaml"), 'defaultProvider: local\nproviders:\n  local:\n    type: openai-compatible\n    baseUrl: http://localhost:1234/v1\n    apiKey: "${TEST_MODEL_KEY}"\n    model: test\n');
+    writeFileSync(path.join(dir, "routing.yaml"), "routes:\n" + ["simple", "coding", "reasoning", "research", "vision"].map((key) => `  ${key}:\n    provider: local\n`).join(""));
+    expect(() => new SettingsStore(dir).read()).toThrow(/agenter.example.json/);
+    expect(existsSync(path.join(dir, "agenter.json"))).toBe(false);
+  });
+  it("never replaces an existing working JSON with the template, even if it is invalid", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "agenter-settings-")); directories.push(dir);
+    writeFileSync(path.join(dir, "agenter.example.json"), JSON.stringify(config()));
+    writeFileSync(path.join(dir, "agenter.json"), "invalid json");
+    expect(() => new SettingsStore(dir).read()).toThrow();
+    expect(readFileSync(path.join(dir, "agenter.json"), "utf8")).toBe("invalid json");
   });
   it("rejects invalid routes, plain remote credentials and impossible token budgets", () => {
     const value = config();

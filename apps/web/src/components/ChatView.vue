@@ -2,12 +2,15 @@
 import { computed, nextTick, ref, watch } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import type { Chat, ContextBudget, DisplayMessage, ProviderSummary } from "../api/types.js";
+import type { Chat, ContextBudget, DisplayMessage, ProviderSummary, TextAttachment, ResponseFormat } from "../api/types.js";
 import { providerPickerOptions } from "../composables/pickerOptions.js";
 import MessageInput from "./MessageInput.vue";
 import OptionPicker from "./OptionPicker.vue";
 import { parseChatCommand } from "../composables/chatCommands.js";
 import { contextProgress } from "../composables/contextMeter.js";
+import TextAttachments from "./TextAttachments.vue";
+import AnswerFiles from "./AnswerFiles.vue";
+import { saveTextFile } from "../composables/answerFiles.js";
 
 const props = defineProps<{
   messages: DisplayMessage[];
@@ -25,6 +28,8 @@ const props = defineProps<{
 
 const providerId = defineModel<string>("providerId", { required: true });
 const draft = defineModel<string>("draft", { required: true });
+const attachments = defineModel<TextAttachment[]>("attachments", { required: true });
+const responseFormat = defineModel<ResponseFormat>("responseFormat", { required: true });
 const historyLimit = defineModel<number | undefined>("historyLimit", { default: undefined });
 const modelPicker = ref<InstanceType<typeof OptionPicker> | null>(null);
 const messageList = ref<HTMLElement | null>(null);
@@ -34,7 +39,7 @@ const isCommand = computed(() => parseChatCommand(draft.value) !== null);
 defineExpose({ openModelPicker: () => modelPicker.value?.open() });
 
 const emit = defineEmits<{
-  send: [content: string];
+  send: [content: string, attachments: TextAttachment[]];
   newChat: [];
   retryProviders: [];
   stop: [];
@@ -155,6 +160,7 @@ function duration(ms: number): string {
                 <div class="user-content">
                   {{ message.content }}
                 </div>
+                <TextAttachments :items="message.attachments ?? []" />
                 <details
                   v-if="message.context"
                   class="request-context"
@@ -200,6 +206,11 @@ function duration(ms: number): string {
                 </details>
               </template>
               <template v-else>
+                <AnswerFiles
+                  v-if="message.content && !message.error && !(isStreaming && message === messages.at(-1))"
+                  :content="message.content"
+                  :response-format="message.responseFormat"
+                />
                 <!-- eslint-disable vue/no-v-html -- Markdown is sanitized by DOMPurify. -->
                 <div
                   v-if="message.content"
@@ -223,7 +234,15 @@ function duration(ms: number): string {
                     @click="copy(message.content,message.id)"
                   >
                     {{ copied===message.id ? 'Скопировано' : 'Копировать ответ' }}
-                  </button><small v-if="copied===`${message.id}:code`">Код скопирован</small>
+                  </button>
+                  <button
+                    v-if="!message.error && !(isStreaming && message === messages.at(-1))"
+                    type="button"
+                    @click="saveTextFile('answer.md', message.content, 'text/markdown;charset=utf-8')"
+                  >
+                    Скачать ответ .md
+                  </button>
+                  <small v-if="copied===`${message.id}:code`">Код скопирован</small>
                 </div>
                 <div
                   v-if="message.tools?.length"
@@ -282,9 +301,11 @@ function duration(ms: number): string {
         <div class="composer">
           <MessageInput
             v-model:draft="draft"
+            v-model:attachments="attachments"
+            :draft-key="activeChat?.id ?? 'new'"
             :streaming="isStreaming"
             :disabled="isStreaming || (!isCommand && (providersLoading || !!providersError || !providerId || !!budget?.overLimit))"
-            @send="(content) => emit('send', content)"
+            @send="(content, files) => emit('send', content, files)"
             @stop="emit('stop')"
           />
           <div class="composer-controls">
@@ -298,8 +319,17 @@ function duration(ms: number): string {
                 search-placeholder="Найти модель"
                 empty-text="Модель не найдена"
               />
+              <label class="response-format">Ответ
+                <select
+                  v-model="responseFormat"
+                  :disabled="isStreaming"
+                  aria-label="Формат ответа"
+                >
+                  <option value="text">Текст</option><option value="markdown">Файл .md</option><option value="html">Файл HTML</option>
+                </select>
+              </label>
             </div>
-            <span class="composer-hint">Enter — отправить · Shift+Enter — новая строка</span>
+            <span class="composer-hint">Ctrl+V — вложение · Enter — отправить</span>
           </div>
         </div>
         <details
@@ -331,7 +361,7 @@ function duration(ms: number): string {
             v-if="budget.overLimit"
             role="alert"
           >
-            Контекст переполнен. Уменьшите историю или число инструментов.
+            Контекст переполнен. Уменьшите текст/вложения, историю или число инструментов.
           </p>
         </details>
         <small

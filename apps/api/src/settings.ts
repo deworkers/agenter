@@ -1,6 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { parse as parseYaml } from "yaml";
 import { ALL_TASK_TYPES, type RoutingConfig } from "@agenter/agent-core";
 import type { McpServerConfig } from "@agenter/mcp";
 import type { AppConfig, ProviderConfigEntry } from "./config.js";
@@ -91,12 +90,11 @@ export class SettingsStore {
   readonly filePath: string;
   constructor(private readonly directory: string) { this.filePath = path.join(directory, "agenter.json"); }
   read(): Settings {
+    // A template seeds new installs only; never overwrite a user's working config.
     if (existsSync(this.filePath)) return validateSettings(JSON.parse(readFileSync(this.filePath, "utf8")));
-    const providers = parseYaml(readFileSync(path.join(this.directory, "providers.yaml"), "utf8")) as Pick<Settings, "providers" | "defaultProvider">;
-    const routing = parseYaml(readFileSync(path.join(this.directory, "routing.yaml"), "utf8")) as Pick<Settings, "routes">;
-    const mcpPath = path.join(this.directory, "mcp.json");
-    const mcp = existsSync(mcpPath) ? JSON.parse(readFileSync(mcpPath, "utf8")) as Pick<Settings, "mcpServers"> : { mcpServers: {} };
-    const settings = validateSettings({ version: 1, ...providers, ...routing, ...mcp });
+    const templatePath = path.join(this.directory, "agenter.example.json");
+    if (!existsSync(templatePath)) throw new Error("Не найден config/agenter.json или шаблон config/agenter.example.json");
+    const settings = validateSettings(JSON.parse(readFileSync(templatePath, "utf8")));
     this.save(settings);
     return settings;
   }

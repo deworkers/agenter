@@ -24,6 +24,22 @@ it("persists compacted context separately without removing conversation messages
 });
 
 describe("SqliteChatStorage", () => {
+  it("keeps attachments and response format across restart and cascades document metadata", () => {
+    const filePath = path.join(tmpdir(), `agenter-documents-${randomUUID()}.db`);
+    let local: SqliteChatStorage | undefined = new SqliteChatStorage(filePath);
+    try {
+      const chat = local.createChat("Files");
+      const attachments = [{ id: "f", name: "input.txt", source: "file" as const, content: "File content" }, { id: "p", name: "Из буфера.txt", source: "clipboard" as const, content: "Clipboard content" }];
+      local.addMessage({ chatId: chat.id, role: "user", content: "Prompt", attachments });
+      local.addMessage({ chatId: chat.id, role: "assistant", content: "<h1>Result</h1>", responseFormat: "html" });
+      local.close(); local = undefined; local = new SqliteChatStorage(filePath);
+      expect(local.listMessages(chat.id)[0]).toMatchObject({ content: "Prompt", attachments });
+      expect(local.listMessages(chat.id)[1]).toMatchObject({ responseFormat: "html", content: "<h1>Result</h1>" });
+      local.deleteChat(chat.id);
+      const db = (local as unknown as { db: DatabaseSync }).db;
+      expect(db.prepare("SELECT COUNT(*) AS count FROM message_documents").get()).toMatchObject({ count: 0 });
+    } finally { local?.close(); unlinkSync(filePath); }
+  });
   it("restores tool calls, usage and duration with the assistant message", () => {
     const local = new SqliteChatStorage(":memory:");
     try {

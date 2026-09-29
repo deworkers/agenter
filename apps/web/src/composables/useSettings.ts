@@ -14,7 +14,7 @@ export function useSettings() {
     loading.value = true; error.value = "";
     try {
       const result = await getSettings();
-      for (const model of Object.values(result.settings.providers)) { model.contextWindow ??= 8192; model.maxOutputTokens ??= 1024; model.timeoutMs ??= 120000; }
+      for (const model of Object.values(result.settings.providers)) { model.contextWindow ??= 8192; model.maxOutputTokens ??= 1024; model.timeoutMs ??= 600000; }
       settings.value = result.settings; environment.value = result.environment;
     }
     catch (cause) { error.value = cause instanceof Error ? cause.message : "Не удалось загрузить настройки"; }

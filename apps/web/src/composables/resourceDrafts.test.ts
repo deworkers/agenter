@@ -4,6 +4,8 @@ import type { Settings } from "../api/types.js";
 it("validates a complete model before adding it and never overwrites an existing ID", () => {
   const fields = { id: "local", label: "Local", baseUrl: "http://localhost:1234/v1", apiKey: "local", model: "test", contextWindow: 8192, maxOutputTokens: 1024 };
   const entry = createModelDraft(fields);
+  expect(entry.kind).toBe("model");
+  if (entry.kind === "model") expect(entry.entry.timeoutMs).toBe(600000);
   const settings: Settings = { version: 1, defaultProvider: "local", providers: {}, routes: {}, mcpServers: {} };
   stageResource(settings, entry);
   expect(settings.providers.local?.model).toBe("test");

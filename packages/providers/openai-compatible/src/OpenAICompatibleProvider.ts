@@ -69,7 +69,7 @@ export class OpenAICompatibleProvider implements LlmProvider {
     this.apiKey = config.apiKey;
     this.contextWindow = config.contextWindow ?? 8192;
     this.maxOutputTokens = config.maxOutputTokens ?? 1024;
-    this.timeoutMs = config.timeoutMs ?? 120_000;
+    this.timeoutMs = config.timeoutMs ?? 600_000;
     this.toolsEnabled = config.supportsTools ?? true;
   }
 
@@ -89,11 +89,13 @@ export class OpenAICompatibleProvider implements LlmProvider {
 
   async *chat(request: LlmRequest): AsyncIterable<LlmEvent> {
     let response: Response;
+    const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
+    const signal = request.signal ? AbortSignal.any([timeoutSignal, request.signal]) : timeoutSignal;
 
     try {
       response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
-        signal: AbortSignal.any([AbortSignal.timeout(this.timeoutMs), ...(request.signal ? [request.signal] : [])]),
+        signal,
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           "Content-Type": "application/json",
@@ -108,7 +110,9 @@ export class OpenAICompatibleProvider implements LlmProvider {
         }),
       });
     } catch (error) {
-      yield { type: "error", message: error instanceof Error ? error.message : String(error) };
+      yield timeoutSignal.aborted && !request.signal?.aborted
+        ? { type: "error", message: "Provider request timed out", code: "timeout" }
+        : { type: "error", message: error instanceof Error ? error.message : String(error) };
       return;
     }
 
@@ -205,6 +209,12 @@ export class OpenAICompatibleProvider implements LlmProvider {
     } else {
       yield { type: "done", usage: promptTokens || completionTokens ? { promptTokens, completionTokens } : undefined };
     }
+    } catch (error) {
+      if (timeoutSignal.aborted && !request.signal?.aborted) {
+        yield { type: "error", message: "Provider request timed out", code: "timeout" };
+      } else {
+        throw error;
+      }
     } finally {
       await reader.cancel().catch(() => undefined);
       reader.releaseLock();

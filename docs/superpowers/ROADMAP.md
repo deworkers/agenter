@@ -11,12 +11,19 @@ testable increment. A plan is not evidence that its code exists.
 | 1 | Chat, SQLite, OpenAI-compatible streaming | `plans/2026-09-15-phase1-chat-mvp.md` | Implemented |
 | 2 | Provider registry and manual provider selection | `plans/2026-09-16-phase2-provider-registry.md` | Implemented; DONE in plan |
 | 3 | Manual/auto provider router | `plans/2026-09-16-phase3-provider-router.md` | Implemented |
-| 4 | Filesystem SkillRegistry and skill metadata API | `plans/2026-09-16-phase4-skills.md` | Implemented; `/api/skills` lists metadata only |
+| 4 | Filesystem SkillRegistry and skill API | `plans/2026-09-16-phase4-skills.md` | Implemented; metadata listing, creation, editing, disabling and backup-based removal |
 | 5 | ToolRegistry and local tool contract | `plans/2026-09-21-phase5-tool-registry.md` | Implemented; API registry is empty by default |
-| 6 | MCP stdio integration | `plans/2026-09-21-phase6-mcp.md` | Implemented; tests/typecheck/lint reviewed |
+| 6 | MCP stdio/SSE integration | `plans/2026-09-21-phase6-mcp.md` | Implemented; per-server allowlists and settings checks |
 | 7 | Agent tool loop | `plans/2026-09-21-phase7-tool-loop.md` | Implemented; provider-neutral bounded loop, safe shared registry execution, atomic call persistence, and SSE lifecycle events |
-| 8 | Model, skill, and tool UI | `plans/2026-09-21-phase8-ui.md` | Planned; provider selector exists as an early Phase 2 addition |
+| 8 | Model, skill, and tool UI | `plans/2026-09-21-phase8-ui.md` | UI implemented; settings/context/mobile follow-ups recorded in `plans/2026-09-28-settings-context-mobile.md`; check original acceptance criteria separately |
 | 9 | Reliability, security, observability, and cleanup | `plans/2026-09-21-phase9-reliability.md` | Planned |
+
+User-authorized follow-up (2026-09-29): remove legacy configuration files/loaders,
+initialize the single working JSON from a tracked JSON template, and replace
+demonstration skills with web research, Context7 docs, complete code delivery,
+interface design and review instructions. See [skill catalog](../skills.ru.md)
+and the latest follow-up in the 2026-09-28 plan.
+This does not implement LLM pre-routing or the remaining Phase 9 scope.
 
 ## Dependency order
 

@@ -20,7 +20,7 @@ export function createModelDraft(input: { id: string; label: string; baseUrl: st
   const isLocal = ["localhost", "127.0.0.1", "[::1]"].includes(new URL(baseUrl).hostname);
   if (!/^\$\{[A-Z0-9_]+\}$/.test(apiKey) && !(isLocal && ["", "local", "ollama", "lm-studio"].includes(apiKey))) throw new Error("Для ключа укажите ссылку ${ENV_NAME}; локальный сервер допускает local или пустое поле");
   if (!Number.isInteger(input.contextWindow) || input.contextWindow < 128 || input.contextWindow > 10_000_000 || !Number.isInteger(input.maxOutputTokens) || input.maxOutputTokens < 1 || input.maxOutputTokens > 1_000_000 || input.maxOutputTokens >= input.contextWindow) throw new Error("Лимит ответа должен быть меньше окна контекста");
-  return { kind: "model", id, entry: { type: "openai-compatible", label: input.label.trim(), baseUrl, apiKey, model: input.model.trim(), contextWindow: input.contextWindow, maxOutputTokens: input.maxOutputTokens, timeoutMs: 120000, supportsTools: true, enabled: true } };
+  return { kind: "model", id, entry: { type: "openai-compatible", label: input.label.trim(), baseUrl, apiKey, model: input.model.trim(), contextWindow: input.contextWindow, maxOutputTokens: input.maxOutputTokens, timeoutMs: 600000, supportsTools: true, enabled: true } };
 }
 export function createServerDraft(input: { id: string; transport: "stdio" | "sse"; url: string; command: string; argsText: string; envText: string }): ResourceDraft {
   const id = identifier(input.id);

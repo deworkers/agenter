@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import type { NewSkillInput } from "./api/types.js";
+import type { NewSkillInput, TextAttachment, ResponseFormat } from "./api/types.js";
+import { validateAttachments, validateResponseFormat } from "@agenter/agent-core";
 import { useChats } from "./composables/useChats.js";
 import { useProviders } from "./composables/useProviders.js";
 import { useSkills } from "./composables/useSkills.js";
@@ -21,6 +22,8 @@ const skillDialogOpen = ref(false);
 const settingsOpen = ref(false);
 const mobileMenu = ref(false);
 const draft = ref("");
+const attachments = ref<TextAttachment[]>([]);
+const responseFormat = ref<ResponseFormat>("text");
 const historyLimit = ref<number | undefined>(undefined);
 const chatError = ref("");
 const commandNotice = ref("");
@@ -29,14 +32,16 @@ const sendOptions = computed(() => ({
   ...(selectedProviderId.value === "auto" ? { mode: "auto" as const } : { mode: "manual" as const, providerId: selectedProviderId.value }),
   ...(selectedSkillId.value ? { skillId: selectedSkillId.value } : {}),
   mcpServerIds: [...activeServerIds.value], historyLimit: historyLimit.value,
+  ...(attachments.value.length ? { attachments: attachments.value } : {}),
+  ...(responseFormat.value !== "text" ? { responseFormat: responseFormat.value } : {}),
 }));
 const { budget: previewBudget, error: contextError, updating: contextUpdating } = useContext(() => ({ chatId: activeChat.value?.id ?? "", content: draft.value, options: sendOptions.value, revision: messages.value.length + contextRevision.value, streaming: busy.value }));
 const budget = computed(() => isStreaming.value ? messages.value.findLast((item) => item.role === "user")?.context?.budget ?? previewBudget.value : previewBudget.value);
 function preferenceKey(): string { return `agenter:chat:${activeChat.value?.id ?? 'new'}`; }
 let restoring = false;
-watch([draft, selectedProviderId, selectedSkillId, activeServerIds, historyLimit], () => {
+watch([draft, attachments, responseFormat, selectedProviderId, selectedSkillId, activeServerIds, historyLimit], () => {
   if (restoring) return;
-  try { localStorage.setItem(preferenceKey(), JSON.stringify({ draft: draft.value, providerId: selectedProviderId.value, skillId: selectedSkillId.value, serverIds: activeServerIds.value, historyLimit: historyLimit.value })); } catch { /* Storage may be unavailable. */ }
+  try { localStorage.setItem(preferenceKey(), JSON.stringify({ draft: draft.value, attachments: attachments.value, responseFormat: responseFormat.value, providerId: selectedProviderId.value, skillId: selectedSkillId.value, serverIds: activeServerIds.value, historyLimit: historyLimit.value })); } catch { /* Storage may be unavailable. */ }
 }, { deep: true, flush: "sync" });
 async function selectChat(id: string): Promise<void> {
   if (busy.value) return;
@@ -44,8 +49,10 @@ async function selectChat(id: string): Promise<void> {
     restoring = true;
     const saved = localStorage.getItem(`agenter:chat:${id}`);
     await openChat(id);
-    const value = saved ? JSON.parse(saved) as { draft?: string; providerId?: string; skillId?: string; serverIds?: string[]; historyLimit?: number } : {};
+    const value = saved ? JSON.parse(saved) as { draft?: string; attachments?: unknown; responseFormat?: unknown; providerId?: string; skillId?: string; serverIds?: string[]; historyLimit?: number } : {};
     draft.value = typeof value.draft === "string" ? value.draft : "";
+    try { attachments.value = validateAttachments(value.attachments); responseFormat.value = validateResponseFormat(value.responseFormat) ?? "text"; }
+    catch { attachments.value = []; responseFormat.value = "text"; }
     selectedProviderId.value = value.providerId === "auto" || providers.value.some((item) => item.id === value.providerId) ? value.providerId! : "auto";
     selectedSkillId.value = skills.value.some((item) => item.id === value.skillId && item.enabled !== false) ? value.skillId! : "";
     activeServerIds.value = Array.isArray(value.serverIds) ? value.serverIds.filter((id) => servers.value.some((item) => item.id === id && item.status === "ready")) : [];
@@ -54,7 +61,7 @@ async function selectChat(id: string): Promise<void> {
   } catch { chatError.value = "Не удалось открыть чат"; }
   finally { restoring = false; }
 }
-watch(() => activeChat.value?.id, () => { if (!restoring) draft.value = ""; });
+watch(() => activeChat.value?.id, () => { if (!restoring) { draft.value = ""; attachments.value = []; responseFormat.value = "text"; } });
 async function handleNewChat(): Promise<void> {
   if (busy.value) return;
   try { await newChat(); mobileMenu.value = false; chatError.value = ""; }
@@ -73,7 +80,7 @@ function resizeViewport(): void { document.documentElement.style.setProperty("--
 onMounted(() => { resizeViewport(); viewport?.addEventListener("resize", resizeViewport); window.addEventListener("resize", resizeViewport); });
 onUnmounted(() => { viewport?.removeEventListener("resize", resizeViewport); window.removeEventListener("resize", resizeViewport); });
 
-async function handleSend(content: string): Promise<void> {
+async function handleSend(content: string, files: TextAttachment[] = []): Promise<void> {
   commandNotice.value = "";
   const command = parseChatCommand(content);
   if (command) {
@@ -91,10 +98,11 @@ async function handleSend(content: string): Promise<void> {
     commandNotice.value = "Команды: /model [ID или auto], /new, /compact"; return;
   }
   if (providersLoading.value || providersError.value || !selectedProviderId.value) return;
+  const options = { ...sendOptions.value, attachments: files };
   try {
-    if (!activeChat.value) await newChat();
-    await sendMessage(content, sendOptions.value);
-  } catch { draft.value = content; chatError.value = "Не удалось отправить сообщение"; }
+    if (!activeChat.value) { await newChat(); responseFormat.value = options.responseFormat ?? "text"; }
+    await sendMessage(content, options);
+  } catch { draft.value = content; attachments.value = files; chatError.value = "Не удалось отправить сообщение"; }
 }
 
 async function handleCompact(): Promise<void> {
@@ -154,6 +162,8 @@ function openSkillDialog(): void {
       ref="chatView"
       v-model:provider-id="selectedProviderId"
       v-model:draft="draft"
+      v-model:attachments="attachments"
+      v-model:response-format="responseFormat"
       v-model:history-limit="historyLimit"
       :messages="messages"
       :is-streaming="busy"
