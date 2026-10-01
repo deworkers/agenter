@@ -20,12 +20,14 @@ export function useTextAttachments(attachments: Ref<TextAttachment[]>, chatKey: 
     finally { if (current === sequence) loading.value = false; }
   }
   function paste(event: ClipboardEvent): void {
-    event.preventDefault(); error.value = "";
+    error.value = "";
     try {
       const text = event.clipboardData?.getData("text/plain") ?? "";
       if (!text) throw new RangeError("Из буфера принимается только текст");
+      if (text.length <= 100) return;
       add([clipboardAttachment(text)]);
     } catch (cause) { error.value = cause instanceof Error ? cause.message : "Не удалось вставить текст"; }
+    event.preventDefault();
   }
   return { error, loading, addFiles, paste };
 }

@@ -90,6 +90,8 @@ and generated Markdown/HTML documents with download/browser actions.
 Implementation and acceptance are described in `docs/text-files.ru.md`.
 Scope extends this chat UI and context/storage boundaries; no server filesystem
 access, binary uploads, additional provider or tool execution is introduced.
+Follow-up (2026-10-01): plain clipboard text of up to 100 characters is pasted
+directly into the composer; longer text remains a separate clipboard card.
 
 ## Response format correction (2026-09-29)
 

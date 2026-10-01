@@ -3,13 +3,29 @@ import { expect, it } from "vitest";
 import { useTextAttachments } from "./useTextAttachments.js";
 import type { TextAttachment } from "../api/types.js";
 
-it("accepts only text from paste and never inserts clipboard HTML or files into the prompt", () => {
+it("leaves plain text up to 100 characters for native textarea insertion", () => {
+  const scope = effectScope(); const attachments = ref<TextAttachment[]>([]);
+  const state = scope.run(() => useTextAttachments(attachments, () => "c"))!;
+  for (const text of ["  Plain text\n", "x".repeat(100)]) {
+    let prevented = false;
+    state.paste({ preventDefault: () => { prevented = true; }, clipboardData: { getData: (type: string) => type === "text/plain" ? text : "<script>bad</script>" } } as unknown as ClipboardEvent);
+    expect(prevented).toBe(false);
+    expect(attachments.value).toEqual([]);
+    expect(state.error.value).toBe("");
+  }
+  scope.stop();
+});
+
+it("attaches text longer than 100 characters and rejects clipboard data without plain text", () => {
   const scope = effectScope(); const attachments = ref<TextAttachment[]>([]);
   const state = scope.run(() => useTextAttachments(attachments, () => "c"))!;
   let prevented = false;
-  state.paste({ preventDefault: () => { prevented = true; }, clipboardData: { getData: (type: string) => type === "text/plain" ? "Plain text" : "<script>bad</script>" } } as unknown as ClipboardEvent);
-  expect(prevented).toBe(true); expect(attachments.value).toHaveLength(1); expect(attachments.value[0]?.content).toBe("Plain text");
-  state.paste({ preventDefault() {}, clipboardData: { getData: () => "" } } as unknown as ClipboardEvent);
+  const text = "x".repeat(101);
+  state.paste({ preventDefault: () => { prevented = true; }, clipboardData: { getData: (type: string) => type === "text/plain" ? text : "<script>bad</script>" } } as unknown as ClipboardEvent);
+  expect(prevented).toBe(true); expect(attachments.value).toHaveLength(1); expect(attachments.value[0]?.content).toBe(text);
+  prevented = false;
+  state.paste({ preventDefault: () => { prevented = true; }, clipboardData: { getData: () => "" } } as unknown as ClipboardEvent);
+  expect(prevented).toBe(true);
   expect(attachments.value).toHaveLength(1); expect(state.error.value).toContain("текст"); scope.stop();
 });
 it("does not attach a file to a different chat when a read finishes late", async () => {
