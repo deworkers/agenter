@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "systemPrompt": "You are a helpful assistant.",
   "defaultProvider": "local",
   "providers": {
     "local": {

@@ -19,6 +19,8 @@ const emit = defineEmits<{
 const draft = defineModel<string>("draft", { default: "" });
 const attachments = defineModel<TextAttachment[]>("attachments", { required: true });
 const fileInput = ref<HTMLInputElement | null>(null);
+const textarea = ref<HTMLTextAreaElement | null>(null);
+defineExpose({ focus: () => textarea.value?.focus() });
 const { error, loading, addFiles, paste } = useTextAttachments(attachments, () => props.draftKey);
 const canSend = computed(() => !props.disabled && !loading.value && (!!draft.value.trim() || !!attachments.value.length));
 async function pickFiles(event: Event): Promise<void> {
@@ -99,13 +101,16 @@ function onKeydown(event: KeyboardEvent): void {
           stroke-linecap="round"
           aria-hidden="true"
         >
-          <path d="M12 5v14M5 12h14" />
+          <path d="m8 13 7-7a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7l9-9M6 15l8-8" />
         </svg>
+        <span>Файл</span>
       </button>
       <textarea
+        ref="textarea"
         v-model="draft"
         :disabled="props.streaming"
-        placeholder="Сообщение или команда: /model, /new, /compact"
+        aria-label="Сообщение"
+        placeholder="Напишите, что нужно сделать…"
         rows="2"
         @keydown="onKeydown"
         @paste="paste"

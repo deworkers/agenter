@@ -53,4 +53,41 @@ describe("MCP catalog", () => {
     expect(state.error.value).toBeNull();
     expect(state.tools.value).toEqual(catalog.tools);
   });
+
+  it("switches automatic links while preserving manual selections and explicit off", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ servers: [
+      { id: "ddg-search", status: "ready" }, { id: "context7", status: "ready" }, { id: "gitlab", status: "ready" },
+    ], tools: [] })));
+    const state = useMcp(); await state.refreshMcp();
+    state.toggleServer("gitlab");
+    state.applySkillServers(["ddg-search"]);
+    expect(state.activeServerIds.value).toEqual(["gitlab", "ddg-search"]);
+    state.toggleServer("ddg-search");
+    expect(state.activeServerIds.value).not.toContain("ddg-search");
+    state.applySkillServers(["context7"]);
+    expect(state.activeServerIds.value).toEqual(["gitlab", "context7"]);
+    state.applySkillServers(["ddg-search"]);
+    expect(state.activeServerIds.value).toEqual(["gitlab", "ddg-search"]);
+  });
+
+  it("restores ownership, drops unavailable links, and does not reselect on recovery", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(Response.json({ servers: [{ id: "context7", status: "ready" }], tools: [] }))
+      .mockResolvedValueOnce(Response.json({ servers: [{ id: "context7", status: "error" }], tools: [] }))
+      .mockResolvedValueOnce(Response.json({ servers: [{ id: "context7", status: "ready" }], tools: [] })));
+    const state = useMcp(); await state.refreshMcp();
+    state.restoreSelection(["manual"], ["context7"]);
+    expect(state.activeServerIds.value).toEqual(["context7"]);
+    await state.refreshMcp(); await state.refreshMcp();
+    expect(state.activeServerIds.value).toEqual([]);
+    expect(state.activeServerIds.value).not.toContain("context7");
+  });
+
+  it("restores chat selection opened before the initial MCP catalog arrives", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(catalog)));
+    const state = useMcp();
+    state.restoreSelection(["files"], []);
+    await state.refreshMcp();
+    expect(state.activeServerIds.value).toEqual(["files"]);
+  });
 });

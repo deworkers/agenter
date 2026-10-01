@@ -22,6 +22,8 @@ Current boundaries: `apps/api` wires providers, storage, skills, a local tool
 registry that is empty by default, and configured MCP servers. Local
 `config/agenter.json` is the active versioned configuration; first startup
 initializes it from tracked `config/agenter.example.json` only when absent.
+Its `systemPrompt` is editable in settings and applies to future runs; older
+configurations without it retain the original default instruction.
 Legacy configuration files and loaders have been removed. Settings API
 updates apply to future runs; active runtime resources remain until their runs
 finish. See `docs/configuration.ru.md` and the approved
@@ -45,8 +47,9 @@ messages remain intact. Runtime history applies summaries through the
 same 2026-09-28 plan. Capability switches live in the sidebar; resource editing
 and creation dialogs live in settings.
 Bundled skills cover web research, Context7 documentation, complete code delivery,
-interface design and code review; see `docs/skills.ru.md`. Skills do not grant
-tool access: MCP selection and allowlists remain independent. Keep delivery
+code review, video transcripts, bug diagnosis and text editing; see
+`docs/skills.ru.md`. Selecting a skill also selects its linked ready MCP servers;
+manual MCP selection and server allowlists remain independent. Keep delivery
 instructions compatible with the selected response format and actual tools.
 Keep `packages/agent-core` independent of concrete tools/providers.
 

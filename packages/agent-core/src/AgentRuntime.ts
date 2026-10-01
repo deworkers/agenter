@@ -42,7 +42,7 @@ export interface RunTurnOptions {
   historyLimit?: number;
 }
 
-const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant.";
+export const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant.";
 const TOOL_FAILURE_MESSAGE = "Tool execution failed.";
 const PROVIDER_FAILURE_MESSAGE = "Provider request failed.";
 const PERSISTENCE_FAILURE_MESSAGE = "Run persistence failed.";

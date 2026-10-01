@@ -11,9 +11,11 @@ import { contextProgress } from "../composables/contextMeter.js";
 import TextAttachments from "./TextAttachments.vue";
 import AnswerFiles from "./AnswerFiles.vue";
 import { saveTextFile } from "../composables/answerFiles.js";
+import { chatStarters, useChatHome } from "../composables/useChatHome.js";
 
 const props = defineProps<{
   messages: DisplayMessage[];
+  chats: Chat[];
   isStreaming: boolean;
   activeChat: Chat | null;
   providers: ProviderSummary[];
@@ -33,6 +35,17 @@ const responseFormat = defineModel<ResponseFormat>("responseFormat", { required:
 const historyLimit = defineModel<number | undefined>("historyLimit", { default: undefined });
 const modelPicker = ref<InstanceType<typeof OptionPicker> | null>(null);
 const messageList = ref<HTMLElement | null>(null);
+const messageInput = ref<InstanceType<typeof MessageInput> | null>(null);
+const { recentChats, showAll, chooseStarter } = useChatHome(draft, () => props.chats);
+async function startPrompt(prompt: string): Promise<void> {
+  chooseStarter(prompt);
+  await nextTick();
+  messageInput.value?.focus();
+}
+function chatDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("ru", { day: "numeric", month: "short" });
+}
 const providerOptions = computed(() => providerPickerOptions(props.providers, props.defaultProviderId));
 const occupancy = computed(() => props.budget ? contextProgress(props.budget) : { value: 0, max: 1 });
 const isCommand = computed(() => parseChatCommand(draft.value) !== null);
@@ -40,7 +53,7 @@ defineExpose({ openModelPicker: () => modelPicker.value?.open() });
 
 const emit = defineEmits<{
   send: [content: string, attachments: TextAttachment[]];
-  newChat: [];
+  selectChat: [id: string];
   retryProviders: [];
   stop: [];
   menu: [];
@@ -96,8 +109,12 @@ function duration(ms: number): string {
         ☰
       </button>
       <div class="chat-heading">
-        <span class="chat-heading-name">{{ activeChat?.title || 'Agenter' }}</span>
-        <span class="chat-heading-subtitle">Локальный AI-чат</span>
+        <span class="chat-heading-workspace">Личное пространство</span>
+        <span
+          class="breadcrumb-separator"
+          aria-hidden="true"
+        >/</span>
+        <span class="chat-heading-name">{{ activeChat?.title || 'Новый диалог' }}</span>
       </div>
       <button
         class="icon-button mobile-only"
@@ -117,19 +134,11 @@ function duration(ms: number): string {
         v-if="messages.length === 0"
         class="welcome"
       >
-        <div class="welcome-mark">
-          ✳
+        <div class="welcome-eyebrow">
+          Ваш ИИ-помощник
         </div>
         <h1>С чего начнём?</h1>
-        <p>Задайте вопрос, выберите модель или подключите навык для задачи.</p>
-        <button
-          v-if="!activeChat"
-          class="welcome-action"
-          type="button"
-          @click="emit('newChat')"
-        >
-          Создать чат
-        </button>
+        <p>Ищите информацию, улучшайте тексты или разбирайтесь в документации.</p>
       </div>
 
       <div
@@ -300,6 +309,7 @@ function duration(ms: number): string {
       <div class="composer-wrap">
         <div class="composer">
           <MessageInput
+            ref="messageInput"
             v-model:draft="draft"
             v-model:attachments="attachments"
             :draft-key="activeChat?.id ?? 'new'"
@@ -329,7 +339,7 @@ function duration(ms: number): string {
                 </select>
               </label>
             </div>
-            <span class="composer-hint">Ctrl+V — вложение · Enter — отправить</span>
+            <span class="composer-hint">/ — команды · Enter — отправить</span>
           </div>
         </div>
         <details
@@ -389,8 +399,89 @@ function duration(ms: number): string {
           </button>
         </div>
         <p class="composer-note">
-          Ответы модели могут содержать ошибки. Проверяйте важные сведения.
+          Проверяйте важные факты по источникам
         </p>
+      </div>
+      <div
+        v-if="messages.length === 0"
+        class="home-sections"
+      >
+        <section
+          class="starter-section"
+          aria-labelledby="starter-heading"
+        >
+          <h2 id="starter-heading">
+            Попробуйте, например
+          </h2>
+          <div class="starter-grid">
+            <button
+              v-for="starter in chatStarters"
+              :key="starter.title"
+              type="button"
+              class="starter-card"
+              :disabled="isStreaming"
+              @click="startPrompt(starter.prompt)"
+            >
+              <strong>{{ starter.title }}</strong>
+              <span>{{ starter.description }}</span>
+            </button>
+          </div>
+        </section>
+        <section
+          class="recent-section"
+          aria-labelledby="recent-heading"
+        >
+          <div class="home-section-heading">
+            <h2 id="recent-heading">
+              Недавние диалоги
+            </h2>
+            <button
+              v-if="chats.length > 3"
+              type="button"
+              :aria-expanded="showAll"
+              @click="showAll = !showAll"
+            >
+              {{ showAll ? 'Свернуть ↑' : 'Все диалоги →' }}
+            </button>
+          </div>
+          <ul
+            v-if="recentChats.length"
+            class="recent-chats"
+          >
+            <li
+              v-for="chat in recentChats"
+              :key="chat.id"
+            >
+              <button
+                type="button"
+                :disabled="isStreaming"
+                @click="emit('selectChat', chat.id)"
+              >
+                <span
+                  class="recent-chat-icon"
+                  aria-hidden="true"
+                >
+                  <svg
+                    width="17"
+                    height="17"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                  ><path d="M4 4h16v12H8l-4 4V4Z" /><path d="M8 8h8M8 12h5" /></svg>
+                </span>
+                <span class="recent-chat-title">{{ chat.title }}</span>
+                <time :datetime="chat.updatedAt">{{ chatDate(chat.updatedAt) }}</time>
+              </button>
+            </li>
+          </ul>
+          <p
+            v-else
+            class="recent-empty"
+          >
+            Здесь будут ваши диалоги. Начните с вопроса или выберите пример выше.
+          </p>
+        </section>
       </div>
     </div>
   </section>

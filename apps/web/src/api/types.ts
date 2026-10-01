@@ -21,6 +21,7 @@ export interface SkillSummary {
   name: string;
   description: string;
   enabled?: boolean;
+  mcpServers?: string[];
 }
 
 export interface NewSkillInput extends SkillSummary {
@@ -49,7 +50,7 @@ export interface ServerSettings {
   env?: Record<string, string>; allowedTools?: string[]; enabled?: boolean;
 }
 export interface Settings {
-  version: 1; defaultProvider: string; providers: Record<string, ModelSettings>;
+  version: 1; systemPrompt: string; defaultProvider: string; providers: Record<string, ModelSettings>;
   routes: Record<string, { provider: string }>; mcpServers: Record<string, ServerSettings>;
 }
 

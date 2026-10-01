@@ -51,6 +51,11 @@ describe("catalogs", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("unavailable", { status: 503 })));
     await expect(listSkills()).rejects.toThrow(/Request failed: 503/);
   });
+
+  it("rejects invalid linked MCP metadata", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ skills: [{ id: "review", name: "Review", description: "Check code", mcpServers: "context7" }] })));
+    await expect(listSkills()).rejects.toThrow(/Invalid skills catalog/);
+  });
 });
 
 describe("sendMessage", () => {

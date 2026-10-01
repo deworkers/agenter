@@ -19,4 +19,17 @@ describe("skill editing", () => {
       registry.scan(); expect(registry.list()).toEqual([]);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
+
+  it("round-trips editable MCP links through a registry rescan", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "agenter-edit-skill-"));
+    try {
+      const registry = new SkillRegistry(dir);
+      registry.add({ id: "research", name: "Research", description: "Look up", instructions: "Search", mcpServers: ["ddg-search"] });
+      expect(registry.list()[0]?.mcpServers).toEqual(["ddg-search"]);
+      registry.update({ id: "research", name: "Research", description: "Look up", instructions: "Search", mcpServers: ["context7"] });
+      const reopened = new SkillRegistry(dir);
+      reopened.scan();
+      expect(reopened.get("research")?.mcpServers).toEqual(["context7"]);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
 });

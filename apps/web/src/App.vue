@@ -13,13 +13,14 @@ import SettingsDialog from "./components/SettingsDialog.vue";
 import { useContext } from "./composables/useContext.js";
 import { parseChatCommand } from "./composables/chatCommands.js";
 
-const { chats, activeChat, messages, isStreaming, isCompacting, contextRevision, compact, refreshChats, newChat, openChat, removeChat, sendMessage, stopGeneration } = useChats();
+const { chats, activeChat, messages, isStreaming, isCompacting, contextRevision, compact, refreshChats, newChat, showHome, openChat, removeChat, sendMessage, stopGeneration } = useChats();
 const busy = computed(() => isStreaming.value || isCompacting.value);
 const { providers, defaultProviderId, selectedProviderId, isLoading: providersLoading, error: providersError, refreshProviders } = useProviders();
 const { skills, selectedSkillId, isLoading: skillsLoading, error: skillsError, isAdding: skillAdding, addError: skillAddError, refreshSkills, addSkill, toggleSkill } = useSkills();
-const { servers, tools, activeServerIds, isLoading: mcpLoading, error: mcpError, refreshMcp, toggleServer } = useMcp();
+const { servers, tools, activeServerIds, manualServerIds, automaticServerIds, isLoading: mcpLoading, error: mcpError, refreshMcp, toggleServer, restoreSelection, applySkillServers } = useMcp();
 const skillDialogOpen = ref(false);
 const settingsOpen = ref(false);
+const settingsSection = ref<"models" | "mcp">("models");
 const mobileMenu = ref(false);
 const draft = ref("");
 const attachments = ref<TextAttachment[]>([]);
@@ -39,9 +40,9 @@ const { budget: previewBudget, error: contextError, updating: contextUpdating } 
 const budget = computed(() => isStreaming.value ? messages.value.findLast((item) => item.role === "user")?.context?.budget ?? previewBudget.value : previewBudget.value);
 function preferenceKey(): string { return `agenter:chat:${activeChat.value?.id ?? 'new'}`; }
 let restoring = false;
-watch([draft, attachments, responseFormat, selectedProviderId, selectedSkillId, activeServerIds, historyLimit], () => {
+watch([draft, attachments, responseFormat, selectedProviderId, selectedSkillId, manualServerIds, automaticServerIds, historyLimit], () => {
   if (restoring) return;
-  try { localStorage.setItem(preferenceKey(), JSON.stringify({ draft: draft.value, attachments: attachments.value, responseFormat: responseFormat.value, providerId: selectedProviderId.value, skillId: selectedSkillId.value, serverIds: activeServerIds.value, historyLimit: historyLimit.value })); } catch { /* Storage may be unavailable. */ }
+  try { localStorage.setItem(preferenceKey(), JSON.stringify({ draft: draft.value, attachments: attachments.value, responseFormat: responseFormat.value, providerId: selectedProviderId.value, skillId: selectedSkillId.value, serverIds: activeServerIds.value, manualServerIds: manualServerIds.value, automaticServerIds: automaticServerIds.value, historyLimit: historyLimit.value })); } catch { /* Storage may be unavailable. */ }
 }, { deep: true, flush: "sync" });
 async function selectChat(id: string): Promise<void> {
   if (busy.value) return;
@@ -49,13 +50,15 @@ async function selectChat(id: string): Promise<void> {
     restoring = true;
     const saved = localStorage.getItem(`agenter:chat:${id}`);
     await openChat(id);
-    const value = saved ? JSON.parse(saved) as { draft?: string; attachments?: unknown; responseFormat?: unknown; providerId?: string; skillId?: string; serverIds?: string[]; historyLimit?: number } : {};
+    if (activeChat.value?.id !== id) return;
+    const value = saved ? JSON.parse(saved) as { draft?: string; attachments?: unknown; responseFormat?: unknown; providerId?: string; skillId?: string; serverIds?: string[]; manualServerIds?: string[]; automaticServerIds?: string[]; historyLimit?: number } : {};
     draft.value = typeof value.draft === "string" ? value.draft : "";
     try { attachments.value = validateAttachments(value.attachments); responseFormat.value = validateResponseFormat(value.responseFormat) ?? "text"; }
     catch { attachments.value = []; responseFormat.value = "text"; }
     selectedProviderId.value = value.providerId === "auto" || providers.value.some((item) => item.id === value.providerId) ? value.providerId! : "auto";
     selectedSkillId.value = skills.value.some((item) => item.id === value.skillId && item.enabled !== false) ? value.skillId! : "";
-    activeServerIds.value = Array.isArray(value.serverIds) ? value.serverIds.filter((id) => servers.value.some((item) => item.id === id && item.status === "ready")) : [];
+    const manual = Array.isArray(value.manualServerIds) ? value.manualServerIds : Array.isArray(value.serverIds) ? value.serverIds : [];
+    restoreSelection(manual.filter((id): id is string => typeof id === "string"), Array.isArray(value.automaticServerIds) ? value.automaticServerIds.filter((id): id is string => typeof id === "string") : []);
     historyLimit.value = value.historyLimit === 0 || value.historyLimit === 20 ? value.historyLimit : undefined;
     mobileMenu.value = false; chatError.value = "";
   } catch { chatError.value = "Не удалось открыть чат"; }
@@ -67,7 +70,21 @@ async function handleNewChat(): Promise<void> {
   try { await newChat(); mobileMenu.value = false; chatError.value = ""; }
   catch { chatError.value = "Не удалось создать чат"; }
 }
-async function reloadCatalogs(): Promise<void> { await Promise.all([refreshProviders(), refreshMcp(), refreshSkills()]); }
+async function refreshSkillsAndBindings(): Promise<void> {
+  const oldSkill = skills.value.find((item) => item.id === selectedSkillId.value);
+  const oldLinks = JSON.stringify(oldSkill?.mcpServers ?? []);
+  await refreshSkills();
+  const newSkill = skills.value.find((item) => item.id === selectedSkillId.value);
+  if (newSkill && oldLinks !== JSON.stringify(newSkill.mcpServers ?? [])) applySkillServers(newSkill.mcpServers ?? []);
+}
+async function reloadCatalogs(): Promise<void> { await Promise.all([refreshProviders(), refreshMcp()]); await refreshSkillsAndBindings(); }
+
+function handleToggleSkill(id: string): void {
+  toggleSkill(id);
+  const selected = skills.value.find((item) => item.id === selectedSkillId.value);
+  if (selected) applySkillServers(selected.mcpServers ?? []);
+}
+function openSettings(section: "models" | "mcp" = "models"): void { settingsSection.value = section; settingsOpen.value = true; }
 
 onMounted(() => {
   void refreshChats().catch(() => { chatError.value = "Не удалось загрузить историю"; });
@@ -121,7 +138,7 @@ async function handleDelete(id: string): Promise<void> {
 }
 
 async function handleAddSkill(input: NewSkillInput): Promise<void> {
-  if (await addSkill(input)) skillDialogOpen.value = false;
+  if (await addSkill(input)) { skillDialogOpen.value = false; applySkillServers(input.mcpServers ?? []); }
 }
 
 function openSkillDialog(): void {
@@ -151,10 +168,12 @@ function openSkillDialog(): void {
       :capabilities-loading="skillsLoading || mcpLoading"
       :capabilities-error="skillsError || mcpError"
       @toggle-server="toggleServer"
-      @toggle-skill="toggleSkill"
+      @toggle-skill="handleToggleSkill"
       @close="mobileMenu=false"
-      @settings="settingsOpen=true; mobileMenu=false"
+      @settings="openSettings(); mobileMenu=false"
+      @settings-mcp="openSettings('mcp'); mobileMenu=false"
       @new-chat="handleNewChat"
+      @home="showHome(); mobileMenu=false"
       @select-chat="selectChat"
       @delete-chat="handleDelete"
     />
@@ -166,6 +185,7 @@ function openSkillDialog(): void {
       v-model:response-format="responseFormat"
       v-model:history-limit="historyLimit"
       :messages="messages"
+      :chats="chats"
       :is-streaming="busy"
       :active-chat="activeChat"
       :providers="providers"
@@ -177,9 +197,9 @@ function openSkillDialog(): void {
       :context-updating="contextUpdating"
       :command-notice="commandNotice"
       @retry-providers="refreshProviders"
-      @new-chat="handleNewChat"
+      @select-chat="selectChat"
       @send="handleSend"
-      @settings="settingsOpen=true"
+      @settings="openSettings()"
       @menu="mobileMenu=true"
       @stop="stopGeneration"
     />
@@ -197,11 +217,14 @@ function openSkillDialog(): void {
     </div>
     <SettingsDialog
       v-if="settingsOpen"
+      :initial-section="settingsSection"
       :skills="skills"
       :tools="tools"
+      :servers="servers"
+      :mcp-loading="mcpLoading"
       @close="settingsOpen=false"
       @saved="reloadCatalogs"
-      @skills-changed="refreshSkills"
+      @skills-changed="refreshSkillsAndBindings"
       @add-skill="openSkillDialog"
     />
     <SkillDialog

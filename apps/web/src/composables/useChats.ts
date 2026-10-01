@@ -13,6 +13,13 @@ export function useChats() {
   let openSequence = 0;
   function stopGeneration(): void { controller?.abort(); }
 
+  function showHome(): void {
+    if (isStreaming.value || isCompacting.value) return;
+    openSequence++;
+    activeChat.value = null;
+    messages.value = [];
+  }
+
   async function compact(options: SendMessageOptions = {}) {
     if (!activeChat.value || isStreaming.value || isCompacting.value) return undefined;
     isCompacting.value = true; controller = new AbortController();
@@ -54,9 +61,11 @@ export function useChats() {
     const chatId = activeChat.value.id;
     const title = content.trim().replace(/\s+/g, " ") || options.attachments?.[0]?.name || "Вложения";
     activeChat.value.title = title;
+    activeChat.value.updatedAt = new Date().toISOString();
     const listed = chats.value.find((chat) => chat.id === chatId);
     if (listed) {
       listed.title = title;
+      listed.updatedAt = activeChat.value.updatedAt;
       chats.value = [listed, ...chats.value.filter((chat) => chat.id !== chatId)];
     }
     messages.value.push({
@@ -126,5 +135,5 @@ export function useChats() {
     }
   }
 
-  return { chats, activeChat, messages, isStreaming, isCompacting, contextRevision, compact, refreshChats, openChat, newChat, removeChat, sendMessage, stopGeneration };
+  return { chats, activeChat, messages, isStreaming, isCompacting, contextRevision, compact, refreshChats, openChat, newChat, showHome, removeChat, sendMessage, stopGeneration };
 }

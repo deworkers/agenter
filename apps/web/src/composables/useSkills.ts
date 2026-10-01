@@ -38,7 +38,7 @@ export function useSkills() {
     try {
       const catalog = await listSkills();
       skills.value = catalog.skills;
-      if (!catalog.skills.some((skill) => skill.id === selectedSkillId.value)) selectedSkillId.value = "";
+      if (!catalog.skills.some((skill) => skill.id === selectedSkillId.value && skill.enabled !== false)) selectedSkillId.value = "";
     } catch (cause) {
       skills.value = [];
       selectedSkillId.value = "";

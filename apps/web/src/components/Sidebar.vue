@@ -17,10 +17,12 @@ defineProps<{
 
 const emit = defineEmits<{
   newChat: [];
+  home: [];
   selectChat: [id: string];
   deleteChat: [id: string];
   close: [];
   settings: [];
+  settingsMcp: [];
   toggleServer: [id: string];
   toggleSkill: [id: string];
 }>();
@@ -33,7 +35,7 @@ const emit = defineEmits<{
   >
     <div class="sidebar-header">
       <div class="brand-mark">
-        ✳
+        A
       </div>
       <span>Agenter</span>
       <button
@@ -62,13 +64,33 @@ const emit = defineEmits<{
         stroke-linejoin="round"
         aria-hidden="true"
       >
-        <path d="M12 20H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9" />
-        <path d="m14 6 4 4" /><path d="m10 14 9-9a2.1 2.1 0 0 1 3 3l-9 9-4 1z" />
+        <path d="M12 5v14M5 12h14" />
       </svg>
-      Новый чат
+      Новый диалог
     </button>
     <div class="sidebar-section-title">
-      История чатов
+      Рабочее пространство
+    </div>
+    <button
+      type="button"
+      class="workspace-nav"
+      :aria-current="!activeChatId ? 'page' : undefined"
+      :disabled="busy"
+      @click="emit('home')"
+    >
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.6"
+        aria-hidden="true"
+      ><path d="M4 4h16v12H8l-4 4V4Z" /><path d="M8 8h8M8 12h5" /></svg>
+      Чат
+    </button>
+    <div class="sidebar-section-title">
+      Недавнее
     </div>
     <div
       v-if="!chats.length"
@@ -127,16 +149,34 @@ const emit = defineEmits<{
       :error="capabilitiesError"
       @toggle-server="emit('toggleServer', $event)"
       @toggle-skill="emit('toggleSkill', $event)"
+      @settings-mcp="emit('settingsMcp')"
     />
-    <div class="sidebar-footer">
-      <span class="sidebar-footer-dot" /> Локальное рабочее пространство
-    </div>
     <button
       class="settings-open-button"
       type="button"
       @click="emit('settings')"
     >
-      ⚙ Настройки
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.6"
+        aria-hidden="true"
+      ><path d="m9 3-1 3-3 1-2 4 2 2v4l4 2 3-1 3 1 4-2v-4l2-2-2-4-3-1-1-3H9Z" /><circle
+        cx="12"
+        cy="12"
+        r="3"
+      /></svg>
+      Настройки
     </button>
+    <div class="sidebar-footer">
+      <span
+        class="workspace-avatar"
+        aria-hidden="true"
+      >A</span>
+      <div><strong>Личное пространство</strong><span><span class="sidebar-footer-dot" /> Локальный Agenter</span></div>
+    </div>
   </aside>
 </template>

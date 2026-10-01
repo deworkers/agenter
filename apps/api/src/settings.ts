@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { ALL_TASK_TYPES, type RoutingConfig } from "@agenter/agent-core";
+import { ALL_TASK_TYPES, DEFAULT_SYSTEM_PROMPT, type RoutingConfig } from "@agenter/agent-core";
 import type { McpServerConfig } from "@agenter/mcp";
 import type { AppConfig, ProviderConfigEntry } from "./config.js";
 import { interpolateEnv } from "./config.js";
@@ -20,6 +20,7 @@ export interface ModelSettings {
 export type ServerSettings = McpServerConfig & { enabled?: boolean; allowedTools?: string[] };
 export interface Settings {
   version: 1;
+  systemPrompt: string;
   defaultProvider: string;
   providers: Record<string, ModelSettings>;
   routes: RoutingConfig;
@@ -46,7 +47,8 @@ function url(value: unknown): URL {
 }
 export function validateSettings(value: unknown): Settings {
   if (!object(value) || value.version !== 1 || !object(value.providers) || !object(value.routes) || !object(value.mcpServers)) fail("Ожидается конфигурация версии 1 с providers, routes и mcpServers");
-  fields(value, ["version", "defaultProvider", "providers", "routes", "mcpServers"]);
+  fields(value, ["version", "systemPrompt", "defaultProvider", "providers", "routes", "mcpServers"]);
+  if (value.systemPrompt !== undefined && (typeof value.systemPrompt !== "string" || value.systemPrompt.length > 100_000)) fail("Базовая инструкция должна быть текстом не длиннее 100000 символов");
   fields(value.routes, ALL_TASK_TYPES);
   const defaultEntry = typeof value.defaultProvider === "string" ? value.providers[value.defaultProvider] : undefined;
   if (!object(defaultEntry) || defaultEntry.enabled === false) fail("Выберите включённую модель по умолчанию");
@@ -83,7 +85,7 @@ export function validateSettings(value: unknown): Settings {
     }
   }
   if (JSON.stringify(value).length > 1_000_000) fail("Конфигурация слишком большая");
-  return value as unknown as Settings;
+  return { ...value, systemPrompt: value.systemPrompt ?? DEFAULT_SYSTEM_PROMPT } as Settings;
 }
 
 export class SettingsStore {

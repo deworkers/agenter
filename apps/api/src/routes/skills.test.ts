@@ -42,4 +42,25 @@ describe("skills route", () => {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
   });
+
+  it("persists MCP links through create and edit, rejecting invalid input", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "agenter-skills-route-"));
+    directories.push(dir);
+    const registry = new SkillRegistry(dir);
+    const app = express(); app.use(express.json()); app.use("/api/skills", createSkillsRouter(registry));
+    const server = app.listen(0, "127.0.0.1");
+    try {
+      await new Promise<void>((resolve) => server.once("listening", resolve));
+      const address = server.address(); if (!address || typeof address === "string") throw new Error("Expected TCP address");
+      const url = `http://127.0.0.1:${address.port}/api/skills`;
+      const input = { id: "video", name: "Video", description: "Summarize", instructions: "Use transcript", mcpServers: ["youtube-transcript"] };
+      const post = (body: object) => fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      expect((await post({ ...input, mcpServers: ["../bad"] })).status).toBe(400);
+      expect((await post(input)).status).toBe(201);
+      expect((await (await fetch(url)).json()).skills[0].mcpServers).toEqual(["youtube-transcript"]);
+      const edited = await fetch(`${url}/video`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, mcpServers: ["context7"] }) });
+      expect(edited.status).toBe(200);
+      expect((await (await fetch(`${url}/video`)).json()).mcpServers).toEqual(["context7"]);
+    } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+  });
 });

@@ -20,7 +20,10 @@ function decodeProviders(value: unknown): ProvidersResponse {
 
 function decodeSkills(value: unknown): SkillsResponse {
   if (!isRecord(value) || !Array.isArray(value.skills) ||
-    !value.skills.every((skill: unknown) => isRecord(skill) && typeof skill.id === "string" && typeof skill.name === "string" && typeof skill.description === "string")) {
+    !value.skills.every((skill: unknown) => {
+      if (!isRecord(skill) || typeof skill.id !== "string" || typeof skill.name !== "string" || typeof skill.description !== "string") return false;
+      return skill.mcpServers === undefined || (Array.isArray(skill.mcpServers) && skill.mcpServers.every((id: unknown) => typeof id === "string"));
+    })) {
     return invalidCatalog("skills");
   }
   return value as unknown as SkillsResponse;

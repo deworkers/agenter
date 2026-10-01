@@ -3,4 +3,5 @@ export interface SkillMetadata {
   name: string;
   description: string;
   enabled?: boolean;
+  mcpServers?: string[];
 }

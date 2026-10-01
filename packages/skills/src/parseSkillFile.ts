@@ -5,6 +5,15 @@ export interface ParsedSkillFile {
   description: string;
   body: string;
   enabled?: boolean;
+  mcpServers?: string[];
+}
+
+export function validateMcpServerIds(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 16 || !value.every((id) => typeof id === "string" && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(id)) || new Set(value).size !== value.length) {
+    throw new RangeError("Skill MCP servers must be unique server IDs");
+  }
+  return value;
 }
 
 const FRONTMATTER_DELIMITER = "---";
@@ -22,7 +31,7 @@ export function parseSkillFile(raw: string): ParsedSkillFile {
   }
 
   const frontmatterYaml = lines.slice(1, closingIndex).join("\n");
-  const frontmatter = parseYaml(frontmatterYaml) as { name?: unknown; description?: unknown; enabled?: unknown } | null;
+  const frontmatter = parseYaml(frontmatterYaml) as { name?: unknown; description?: unknown; enabled?: unknown; mcpServers?: unknown } | null;
 
   const name = frontmatter?.name;
   if (typeof name !== "string" || name.length === 0) {
@@ -39,5 +48,6 @@ export function parseSkillFile(raw: string): ParsedSkillFile {
     .join("\n")
     .replace(/^\n+/, "");
 
-  return { name, description, body, ...(frontmatter?.enabled === false ? { enabled: false } : {}) };
+  const mcpServers = validateMcpServerIds(frontmatter?.mcpServers);
+  return { name, description, body, ...(frontmatter?.enabled === false ? { enabled: false } : {}), ...(mcpServers ? { mcpServers } : {}) };
 }

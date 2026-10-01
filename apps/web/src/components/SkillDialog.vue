@@ -13,6 +13,7 @@ const description = ref(props.initial?.description ?? "");
 const instructions = ref(props.initial?.instructions ?? "");
 const editedId = ref(!!props.initial);
 const enabled = ref(props.initial?.enabled !== false);
+const mcpServersText = ref((props.initial?.mcpServers ?? []).join(", "));
 const preview = ref(false);
 function previewHtml(): string { return DOMPurify.sanitize(marked.parse(instructions.value, { async: false })); }
 
@@ -26,6 +27,7 @@ function submit(): void {
     name: name.value.trim(),
     description: description.value.trim(),
     instructions: instructions.value.trim(),
+    mcpServers: [...new Set(mcpServersText.value.split(/[\s,]+/).map((id) => id.trim()).filter(Boolean))],
     ...(props.initial ? { enabled: enabled.value } : {}),
   });
 }
@@ -101,6 +103,13 @@ function submit(): void {
             placeholder="Опишите шаги, ограничения и желаемый формат ответа…"
           />
           <small>Можно использовать Markdown. Содержимое будет отправляться модели вместе с вашими сообщениями.</small>
+        </label>
+        <label>Связанные MCP-сервисы
+          <input
+            v-model="mcpServersText"
+            placeholder="Например, ddg-search, context7"
+          >
+          <small>ID из настроек MCP, через запятую. Доступные сервисы включатся при выборе навыка; недоступные будут отмечены в боковой панели.</small>
         </label>
         <label
           v-if="initial"

@@ -6,7 +6,7 @@ it("validates a complete model before adding it and never overwrites an existing
   const entry = createModelDraft(fields);
   expect(entry.kind).toBe("model");
   if (entry.kind === "model") expect(entry.entry.timeoutMs).toBe(600000);
-  const settings: Settings = { version: 1, defaultProvider: "local", providers: {}, routes: {}, mcpServers: {} };
+  const settings: Settings = { version: 1, systemPrompt: "You are a helpful assistant.", defaultProvider: "local", providers: {}, routes: {}, mcpServers: {} };
   stageResource(settings, entry);
   expect(settings.providers.local?.model).toBe("test");
   expect(() => stageResource(settings, createModelDraft({ ...fields, model: "replacement" }))).toThrow();

@@ -7,6 +7,10 @@ sdd/
 *.tsbuildinfo
 apps/web/src/**/*.js
 apps/web/src/**/*.d.ts
+.codebase-index/index/
+
+# Auto-generated context docs
+.repo-context/
 
 # Local editable configuration and backups
 config/agenter.json

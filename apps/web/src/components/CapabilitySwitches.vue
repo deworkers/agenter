@@ -2,9 +2,11 @@
 import { computed } from "vue";
 import type { McpServerSummary, SkillSummary } from "../api/types.js";
 const props = defineProps<{ servers: McpServerSummary[]; activeServerIds: string[]; skills: SkillSummary[]; selectedSkillId: string; busy?: boolean; loading?: boolean; error?: string | null }>();
-const emit = defineEmits<{ toggleServer: [id: string]; toggleSkill: [id: string] }>();
+const emit = defineEmits<{ toggleServer: [id: string]; toggleSkill: [id: string]; settingsMcp: [] }>();
 const skills = computed(() => props.skills.filter(skill => skill.enabled !== false));
 const count = computed(() => props.activeServerIds.length + (props.selectedSkillId ? 1 : 0));
+const selectedSkill = computed(() => skills.value.find((skill) => skill.id === props.selectedSkillId));
+const missingServers = computed(() => (selectedSkill.value?.mcpServers ?? []).filter((id) => !props.activeServerIds.includes(id)));
 </script>
 
 <template>
@@ -45,10 +47,23 @@ const count = computed(() => props.activeServerIds.length + (props.selectedSkill
           role="switch"
           :aria-label="`Навык ${skill.name}`"
           :checked="selectedSkillId === skill.id"
-          :disabled="busy"
+          :disabled="busy || loading"
           @change="emit('toggleSkill', skill.id)"
         >
       </label>
+      <p
+        v-if="missingServers.length"
+        class="sidebar-tools-warning"
+        role="status"
+      >
+        Для навыка не выбраны MCP: {{ missingServers.join(', ') }}.
+        <button
+          type="button"
+          @click="emit('settingsMcp')"
+        >
+          Настроить MCP
+        </button>
+      </p>
       <h3>MCP-сервисы</h3>
       <p
         v-if="!servers.length && !loading"

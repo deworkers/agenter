@@ -47,4 +47,11 @@ describe("parseSkillFile", () => {
     const raw = ["---", "name: missing-description", "---", "body"].join("\n");
     expect(() => parseSkillFile(raw)).toThrow("SKILL.md frontmatter is missing a 'description' field");
   });
+
+  it("reads MCP server links and rejects malformed links", () => {
+    const raw = "---\nname: Review\ndescription: Review code\nmcpServers:\n  - context7\n  - repo-context\n---\n\nReview.";
+    expect(parseSkillFile(raw).mcpServers).toEqual(["context7", "repo-context"]);
+    expect(() => parseSkillFile(raw.replace("  - repo-context", "  - ../unsafe"))).toThrow();
+    expect(() => parseSkillFile(raw.replace("  - repo-context", "  - context7"))).toThrow();
+  });
 });

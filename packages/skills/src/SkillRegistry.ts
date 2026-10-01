@@ -2,7 +2,7 @@
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { stringify as stringifyYaml } from "yaml";
-import { parseSkillFile } from "./parseSkillFile.js";
+import { parseSkillFile, validateMcpServerIds } from "./parseSkillFile.js";
 import type { SkillMetadata } from "./types.js";
 
 export interface NewSkillInput extends SkillMetadata {
@@ -28,8 +28,8 @@ export class SkillRegistry {
       if (!existsSync(skillFilePath)) continue;
 
       const raw = readFileSync(skillFilePath, "utf-8");
-      const { name, description, enabled } = parseSkillFile(raw);
-      this.metadata.set(entry.name, { id: entry.name, name, description, ...(enabled === false ? { enabled: false } : {}) });
+      const { name, description, enabled, mcpServers } = parseSkillFile(raw);
+      this.metadata.set(entry.name, { id: entry.name, name, description, ...(enabled === false ? { enabled: false } : {}), ...(mcpServers?.length ? { mcpServers } : {}) });
     }
   }
 
@@ -47,6 +47,7 @@ export class SkillRegistry {
 
   add(input: NewSkillInput): SkillMetadata {
     const { id, name, description, instructions } = input;
+    const mcpServers = validateMcpServerIds(input.mcpServers);
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(id)) {
       throw new RangeError("Skill id must use lowercase letters, digits and hyphens");
     }
@@ -63,9 +64,9 @@ export class SkillRegistry {
       throw error;
     }
 
-    const content = `---\n${stringifyYaml({ name: name.trim(), description: description.trim() })}---\n\n${instructions.trim()}\n`;
+    const content = `---\n${stringifyYaml({ name: name.trim(), description: description.trim(), ...(mcpServers?.length ? { mcpServers } : {}) })}---\n\n${instructions.trim()}\n`;
     writeFileSync(path.join(skillDir, "SKILL.md"), content, { encoding: "utf-8", flag: "wx" });
-    const metadata = { id, name: name.trim(), description: description.trim() };
+    const metadata = { id, name: name.trim(), description: description.trim(), ...(mcpServers?.length ? { mcpServers } : {}) };
     this.metadata.set(id, metadata);
     return metadata;
   }
@@ -80,9 +81,10 @@ export class SkillRegistry {
   update(input: NewSkillInput): SkillMetadata {
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(input.id) || !this.metadata.has(input.id)) throw new RangeError("Unknown skill id");
     if (!input.name.trim() || !input.description.trim() || !input.instructions.trim() || input.name.length > 120 || input.description.length > 500 || input.instructions.length > 100_000 || (input.enabled !== undefined && typeof input.enabled !== "boolean")) throw new RangeError("Invalid skill fields or size limits");
+    const mcpServers = validateMcpServerIds(input.mcpServers);
     const target = this.skillPath(input.id);
-    const metadata = { id: input.id, name: input.name.trim(), description: input.description.trim(), ...(input.enabled === false ? { enabled: false } : {}) };
-    const content = `---\n${stringifyYaml({ name: metadata.name, description: metadata.description, ...(input.enabled === false ? { enabled: false } : {}) })}---\n\n${input.instructions.trim()}\n`;
+    const metadata = { id: input.id, name: input.name.trim(), description: input.description.trim(), ...(input.enabled === false ? { enabled: false } : {}), ...(mcpServers?.length ? { mcpServers } : {}) };
+    const content = `---\n${stringifyYaml({ name: metadata.name, description: metadata.description, ...(input.enabled === false ? { enabled: false } : {}), ...(mcpServers?.length ? { mcpServers } : {}) })}---\n\n${input.instructions.trim()}\n`;
     writeFileSync(`${target}.tmp`, content, "utf8");
     copyFileSync(target, `${target}.bak`);
     renameSync(`${target}.tmp`, target);

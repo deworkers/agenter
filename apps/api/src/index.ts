@@ -38,7 +38,7 @@ async function buildState(settings: Settings) {
   const manager = new McpManager(tools);
   await manager.start(resolveServers(settings));
   managers.add(manager);
-  const runtime = new AgentRuntime(registry, storage, new ProviderRouter(resolved.routing), { toolRuntime: createAgentToolRuntime(tools), contextStorage: storage });
+  const runtime = new AgentRuntime(registry, storage, new ProviderRouter(resolved.routing), { systemPrompt: settings.systemPrompt, toolRuntime: createAgentToolRuntime(tools), contextStorage: storage });
   return { registry, tools, manager, runtime, active: 0, retired: false };
 }
 let state = await buildState(settingsStore.read());

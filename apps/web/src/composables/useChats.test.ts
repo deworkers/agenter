@@ -4,6 +4,45 @@ import { useChats } from "./useChats.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("returning to chat home", () => {
+  it("keeps saved chats and does not create or delete a conversation", () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const state = useChats();
+    const chat = { id: "c", title: "Saved", createdAt: "", updatedAt: "" };
+    state.chats.value = [chat]; state.activeChat.value = chat;
+    state.messages.value = [{ id: "m", chatId: "c", role: "user", content: "Saved text", provider: null, model: null, createdAt: "" }];
+    state.showHome();
+    expect(state.activeChat.value).toBeNull();
+    expect(state.messages.value).toEqual([]);
+    expect(state.chats.value).toEqual([chat]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not leave a running conversation", () => {
+    const state = useChats();
+    state.activeChat.value = { id: "c", title: "Running", createdAt: "", updatedAt: "" };
+    state.isStreaming.value = true;
+    state.showHome();
+    expect(state.activeChat.value?.id).toBe("c");
+    state.isStreaming.value = false; state.isCompacting.value = true;
+    state.showHome();
+    expect(state.activeChat.value?.id).toBe("c");
+  });
+
+  it("ignores a pending history response after returning home", async () => {
+    let resolve!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(done => { resolve = done; })));
+    const state = useChats();
+    const pending = state.openChat("c");
+    state.showHome();
+    resolve(Response.json({ chat: { id: "c", title: "Saved", createdAt: "", updatedAt: "" }, messages: [] }));
+    await pending;
+    expect(state.activeChat.value).toBeNull();
+    expect(state.messages.value).toEqual([]);
+  });
+});
+
 describe("sending with a selected provider", () => {
   it("sends attachment-only messages and retains documents and requested output format", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response('data: {"type":"text.delta","text":"<h1>Done</h1>"}\n\ndata: {"type":"run.completed"}\n\n'));
@@ -56,6 +95,8 @@ describe("sending with a selected provider", () => {
     await state.sendMessage("New\nquestion", { mode: "auto", skillId: "review" });
     expect(state.activeChat.value?.title).toBe("New question");
     expect(state.chats.value[0]?.title).toBe("New question");
+    expect(Date.parse(state.chats.value[0]!.updatedAt)).toBeGreaterThan(0);
+    expect(state.chats.value[0]?.updatedAt).toBe(state.activeChat.value?.updatedAt);
     expect(state.messages.value[0]?.context).toEqual(context);
   });
   it("sends the selected provider to the API and labels the reply from run.started", async () => {

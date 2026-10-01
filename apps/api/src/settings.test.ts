@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SettingsStore, validateSettings } from "./settings.js";
+import { DEFAULT_SYSTEM_PROMPT } from "@agenter/agent-core";
 
 const directories: string[] = [];
 afterEach(() => directories.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -11,6 +12,19 @@ const config = () => ({ version: 1, defaultProvider: "local", providers: { local
 } }, routes: Object.fromEntries(["simple", "coding", "reasoning", "research", "vision"].map((key) => [key, { provider: "local" }])), mcpServers: {} });
 
 describe("settings", () => {
+  it("shows the current base instruction for old configs and persists an edited or empty instruction", () => {
+    const old = config();
+    expect(validateSettings(old).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    const dir = mkdtempSync(path.join(tmpdir(), "agenter-settings-")); directories.push(dir);
+    writeFileSync(path.join(dir, "agenter.json"), JSON.stringify(old));
+    const store = new SettingsStore(dir);
+    expect(store.read().systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    store.save({ ...store.read(), systemPrompt: "Answer in Russian.\nUse the selected skill." });
+    expect(new SettingsStore(dir).read().systemPrompt).toBe("Answer in Russian.\nUse the selected skill.");
+    expect(validateSettings({ ...old, systemPrompt: "" }).systemPrompt).toBe("");
+    expect(() => validateSettings({ ...old, systemPrompt: 42 })).toThrow();
+    expect(() => validateSettings({ ...old, systemPrompt: "x".repeat(100_001) })).toThrow();
+  });
   it("initializes one working JSON configuration from its template and backs up atomic saves", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "agenter-settings-")); directories.push(dir);
     writeFileSync(path.join(dir, "agenter.example.json"), JSON.stringify(config()));
@@ -21,7 +35,7 @@ describe("settings", () => {
     store.save(next);
     expect(new SettingsStore(dir).read().providers.local?.model).toBe("changed");
     expect(JSON.parse(readFileSync(path.join(dir, "agenter.json.bak"), "utf8"))).toEqual(original);
-    expect(JSON.parse(readFileSync(path.join(dir, "agenter.example.json"), "utf8"))).toEqual(original);
+    expect(JSON.parse(readFileSync(path.join(dir, "agenter.example.json"), "utf8"))).toEqual(config());
     expect(existsSync(path.join(dir, "providers.yaml"))).toBe(false);
   });
   it("does not recreate a working configuration from legacy files", () => {
