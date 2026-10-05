@@ -2,6 +2,9 @@ import { marked } from "marked";
 import type { ResponseFormat } from "../api/types.js";
 
 export interface AnswerFile { name: string; content: string; format: "html" | "markdown" }
+export function answerFileMediaType(format: AnswerFile["format"]): string {
+  return format === "html" ? "text/html;charset=utf-8" : "text/markdown;charset=utf-8";
+}
 function closedFence(raw: string): boolean {
   const opening = raw.match(/^ {0,3}(`{3,}|~{3,})/);
   if (!opening) return false;

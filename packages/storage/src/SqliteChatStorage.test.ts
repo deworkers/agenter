@@ -23,6 +23,27 @@ it("persists compacted context separately without removing conversation messages
   } finally { storage?.close(); unlinkSync(filePath); }
 });
 
+it("preserves the title previously displayed by an old database", () => {
+  const filePath = path.join(tmpdir(), `agenter-title-migration-${randomUUID()}.db`);
+  let storage: SqliteChatStorage | undefined;
+  try {
+    const legacy = new DatabaseSync(filePath);
+    legacy.exec("CREATE TABLE chats (id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE messages (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, provider TEXT, model TEXT, created_at TEXT NOT NULL);");
+    legacy.prepare("INSERT INTO chats (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)").run("legacy", "New chat", "2026-01-01", "2026-01-01");
+    legacy.prepare("INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)").run("m1", "legacy", "First", "2026-01-01");
+    legacy.prepare("INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)").run("m2", "legacy", "Displayed before update", "2026-01-02");
+    legacy.close();
+
+    storage = new SqliteChatStorage(filePath);
+    expect(storage.getChat("legacy")?.title).toBe("Displayed before update");
+    storage.addMessage({ chatId: "legacy", role: "user", content: "A later turn" });
+    expect(storage.getChat("legacy")?.title).toBe("Displayed before update");
+  } finally {
+    storage?.close();
+    unlinkSync(filePath);
+  }
+});
+
 describe("SqliteChatStorage", () => {
   it("keeps attachments and response format across restart and cascades document metadata", () => {
     const filePath = path.join(tmpdir(), `agenter-documents-${randomUUID()}.db`);
@@ -87,8 +108,8 @@ describe("SqliteChatStorage", () => {
     expect(messages[1]?.provider).toBe("local-fast");
   });
 
-  it("uses the last user message as the chat title and persists its request context", () => {
-    const chat = storage.createChat("New chat");
+  it("keeps the first user message as the chat title and persists its request context", () => {
+    const chat = storage.createChat("Новый чат");
     const context = {
       systemPrompt: "You are helpful.",
       skill: { id: "review", content: "Review carefully." },
@@ -98,9 +119,23 @@ describe("SqliteChatStorage", () => {
     storage.addMessage({ chatId: chat.id, role: "assistant", content: "Answer" });
     storage.addMessage({ chatId: chat.id, role: "user", content: "Second\nquestion" });
 
-    expect(storage.listChats()[0]?.title).toBe("Second question");
-    expect(storage.getChat(chat.id)?.title).toBe("Second question");
+    expect(storage.listChats()[0]?.title).toBe("First question");
+    expect(storage.getChat(chat.id)?.title).toBe("First question");
     expect(storage.listMessages(chat.id)[0]?.context).toEqual(context);
+  });
+
+  it("keeps an explicit title after the first message and later turns", () => {
+    const chat = storage.createChat("Новый чат");
+    storage.updateChatTitle(chat.id, "До первого сообщения");
+    storage.addMessage({ chatId: chat.id, role: "user", content: "First question" });
+    storage.addMessage({ chatId: chat.id, role: "user", content: "Second question" });
+    expect(storage.getChat(chat.id)?.title).toBe("До первого сообщения");
+  });
+
+  it("uses a useful fallback for clipboard-only first messages", () => {
+    const chat = storage.createChat("Новый чат");
+    storage.addMessage({ chatId: chat.id, role: "user", content: "", attachments: [{ id: "clip", name: "Из буфера.txt", source: "clipboard", content: "Long source" }] });
+    expect(storage.getChat(chat.id)?.title).toBe("Вложения");
   });
 
   it("deletes a chat and cascades its messages", () => {
@@ -211,6 +246,25 @@ describe("SqliteChatStorage", () => {
     expect(storage.listMessages(chat.id).at(-1)).toMatchObject({ role: "assistant", error: "Запрос не завершён успешно." });
   });
 
+  it("restores the safe failure category after reopening the database", () => {
+    const filePath = path.join(tmpdir(), `agenter-run-error-${randomUUID()}.db`);
+    let local: SqliteChatStorage | undefined = new SqliteChatStorage(filePath);
+    try {
+      const chat = local.createChat("Failure");
+      const user = local.addMessage({ chatId: chat.id, role: "user", content: "run tool" });
+      const safeFailure = JSON.stringify({ error: { code: "unavailable", message: "Источник инструмента временно недоступен." } });
+      local.completeRun({ chatId: chat.id, messageId: user.id, provider: "local", model: "test", status: "error", durationMs: 12, errorCode: "tool_unavailable" }, [
+        { toolName: "lookup", arguments: "{}", result: safeFailure, status: "error" },
+      ]);
+      local.close(); local = undefined;
+      local = new SqliteChatStorage(filePath);
+      expect(local.listMessages(chat.id).at(-1)).toMatchObject({
+        errorCode: "tool_unavailable",
+        tools: [{ name: "lookup", status: "error", result: { error: { code: "unavailable", message: "Источник инструмента временно недоступен." } } }],
+      });
+    } finally { local?.close(); unlinkSync(filePath); }
+  });
+
   it("rolls back the assistant, run, tool calls, and chat timestamp if a tool-call insert fails", () => {
     const chat = storage.createChat("My chat");
     const userMessage = storage.addMessage({ chatId: chat.id, role: "user", content: "hi" });
@@ -250,7 +304,7 @@ describe("SqliteChatStorage", () => {
   it("persists data across instances backed by the same file", () => {
     const filePath = `./.tmp-test-${Date.now()}.db`;
     const first = new SqliteChatStorage(filePath);
-    const chat = first.createChat("Persisted chat");
+    const chat = first.createChat("Новый чат");
     const context = { systemPrompt: "Base", tools: [] };
     first.addMessage({ chatId: chat.id, role: "user", content: "Saved question", context });
     first.close();

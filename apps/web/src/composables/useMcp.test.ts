@@ -70,6 +70,19 @@ describe("MCP catalog", () => {
     expect(state.activeServerIds.value).toEqual(["gitlab", "ddg-search"]);
   });
 
+  it("clears automatic links when no skill is selected and keeps manual servers", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ servers: [
+      { id: "context7", status: "ready" }, { id: "gitlab", status: "ready" },
+    ], tools: [] })));
+    const state = useMcp(); await state.refreshMcp();
+    state.toggleServer("gitlab");
+    state.applySkillServers(["context7"]);
+    state.applySkillServers([]);
+    expect(state.manualServerIds.value).toEqual(["gitlab"]);
+    expect(state.automaticServerIds.value).toEqual([]);
+    expect(state.activeServerIds.value).toEqual(["gitlab"]);
+  });
+
   it("restores ownership, drops unavailable links, and does not reselect on recovery", async () => {
     vi.stubGlobal("fetch", vi.fn()
       .mockResolvedValueOnce(Response.json({ servers: [{ id: "context7", status: "ready" }], tools: [] }))

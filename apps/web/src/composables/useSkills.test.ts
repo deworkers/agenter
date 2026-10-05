@@ -33,7 +33,7 @@ describe("skill selection", () => {
     expect(state.isLoading.value).toBe(false);
   });
 
-  it("toggles one skill at a time and ignores unknown skills", async () => {
+  it("selects one skill at a time, supports None, and ignores unknown skills", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(catalog)));
     const state = useSkills();
     await state.refreshSkills();
@@ -42,7 +42,7 @@ describe("skill selection", () => {
     expect(state.selectedSkillId.value).toBe("review");
     state.toggleSkill("research");
     expect(state.selectedSkillId.value).toBe("research");
-    state.toggleSkill("research");
+    state.toggleSkill("");
     expect(state.selectedSkillId.value).toBe("");
     state.toggleSkill("missing");
     expect(state.selectedSkillId.value).toBe("");

@@ -53,6 +53,45 @@ Physical mobile keyboard behavior remains unverified. Interrupted answer text
 is not persisted; the failed run and completed tool records remain available.
 Remaining Phase 9 logging/retry/audit work is outside this approved scope.
 
+## MCP tool selection follow-up (2026-10-05)
+
+User requested selecting active MCP functions to avoid sending a large catalog
+(GitLab: 116 tools) with every turn. The settings UI now always exposes the catalog,
+with name/description search, active-only filtering, counts and bulk actions on
+the filtered set. Removing one tool from all mode preserves the other current
+tools. Explicit selections use the existing per-server `allowedTools` field;
+newly discovered tools remain inactive unless all/future-tools mode is enabled.
+Settings saves apply the subset to future runs through existing runtime snapshots.
+No separate permissions model or backend schema was added.
+
+Verified: selection/save/restore tests, a 116-tool runtime regression checking
+both provider definitions and context cost, Chrome with the actual GitLab catalog,
+and responsive settings at 390 px. Root typecheck, 285 tests (thread pool), lint
+(0 errors; existing formatting warnings in SettingsDialog) and web build passed.
+Browser verification used an unsaved draft; the live GitLab subset was preserved.
+
+The subsequent list-layout fix prevents rows from shrinking below their content.
+Desktop rows show a compact description beside the name; a native disclosure
+reveals the full text independently of selection. Mobile rows stack the fields.
+Chrome geometry checks found no overflowing rows in the 116-tool catalog or at
+320/390 px, including an expanded long description. Root checks remain green.
+
+User subsequently approved a restricted GitLab review setup with saving MR
+descriptions while blocking other update fields. The optional `gitlab-review`
+MCP profile filters the catalog, narrows write schemas, validates write arguments
+before calls and rejects slash-command lines in descriptions/comments. Existing
+configurations without a profile retain their behavior. The profile intersects
+the server allowlist and remains preserved in settings and transport changes.
+Real GitLab writes are not used for setup verification; guarded calls use SDK mocks.
+
+Applied to the working GitLab configuration: 16 enabled functions out of 37
+profile-compatible functions (original catalog: 116). API context preview for
+api-fast measured tool-schema estimates of 32,949 before and 6,113 after. Catalog
+status is ready, the description-update schema has only the three allowed fields,
+and comparison with the settings backup confirms other configuration unchanged.
+The current server does not expose individual commit comment APIs; comments and
+discussions in this setup target merge requests.
+
 ## Approved UX follow-up (2026-09-28)
 
 User requested slash commands, a corrected occupancy bar, stable context

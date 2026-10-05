@@ -1,6 +1,6 @@
 import { onScopeDispose, ref, watch, type Ref } from "vue";
 import { validateAttachments, type TextAttachment } from "@agenter/agent-core";
-import { clipboardAttachment, readTextFile } from "./textFiles.js";
+import { clipboardAttachment, insertTextAtSelection, readTextFile } from "./textFiles.js";
 
 export function useTextAttachments(attachments: Ref<TextAttachment[]>, chatKey: () => string) {
   const error = ref(""); const loading = ref(false);
@@ -21,13 +21,24 @@ export function useTextAttachments(attachments: Ref<TextAttachment[]>, chatKey: 
   }
   function paste(event: ClipboardEvent): void {
     error.value = "";
+    const text = event.clipboardData?.getData("text/plain") ?? "";
+    if (!text) {
+      error.value = "Из буфера принимается только текст";
+      event.preventDefault();
+      return;
+    }
+    if (text.length <= 100) return;
     try {
-      const text = event.clipboardData?.getData("text/plain") ?? "";
-      if (!text) throw new RangeError("Из буфера принимается только текст");
-      if (text.length <= 100) return;
       add([clipboardAttachment(text)]);
+      event.preventDefault();
     } catch (cause) { error.value = cause instanceof Error ? cause.message : "Не удалось вставить текст"; }
-    event.preventDefault();
   }
-  return { error, loading, addFiles, paste };
+  function insertClipboard(id: string, current: string, start: number, end: number): { value: string; cursor: number } {
+    const item = attachments.value.find(attachment => attachment.id === id && attachment.source === "clipboard");
+    if (!item) throw new RangeError("Вложение из буфера уже недоступно");
+    const inserted = insertTextAtSelection(current, item.content, start, end);
+    attachments.value = attachments.value.filter(attachment => attachment.id !== id);
+    return inserted;
+  }
+  return { error, loading, addFiles, paste, insertClipboard };
 }

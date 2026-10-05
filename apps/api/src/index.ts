@@ -2,7 +2,7 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AgentRuntime, ProviderRouter } from "@agenter/agent-core";
+import { AgentRuntime, MAX_SELF_CHECK_CONTINUATIONS, ProviderRouter } from "@agenter/agent-core";
 import { SqliteChatStorage } from "@agenter/storage";
 import { SkillRegistry } from "@agenter/skills";
 import { buildLocalToolRegistry } from "./localTools.js";
@@ -38,7 +38,7 @@ async function buildState(settings: Settings) {
   const manager = new McpManager(tools);
   await manager.start(resolveServers(settings));
   managers.add(manager);
-  const runtime = new AgentRuntime(registry, storage, new ProviderRouter(resolved.routing), { systemPrompt: settings.systemPrompt, toolRuntime: createAgentToolRuntime(tools), contextStorage: storage });
+  const runtime = new AgentRuntime(registry, storage, new ProviderRouter(resolved.routing), { systemPrompt: settings.systemPrompt, toolRuntime: createAgentToolRuntime(tools), contextStorage: storage, maxSelfCheckContinuations: MAX_SELF_CHECK_CONTINUATIONS });
   return { registry, tools, manager, runtime, active: 0, retired: false };
 }
 let state = await buildState(settingsStore.read());

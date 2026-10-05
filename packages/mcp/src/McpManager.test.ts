@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ToolRegistry } from "../../tools/src/ToolRegistry.js";
 import { McpManager } from "./McpManager.js";
+import { testMcpConnection } from "./testConnection.js";
 
 const sdk = vi.hoisted(() => ({
   clients: [] as Array<{ connect: ReturnType<typeof vi.fn>; listTools: ReturnType<typeof vi.fn>; callTool: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }>,
@@ -66,6 +67,42 @@ afterEach(() => {
 });
 
 describe("McpManager", () => {
+  it("restricts the GitLab review catalog even when all tools are allowed", async () => {
+    sdk.tools.push(...["get_commit", "update_merge_request", "create_merge_request_note", "delete_branch", "merge_merge_request", "update_project", "discover_tools"].map(name => ({ name, inputSchema: { type: "object" } })));
+    const registry = new ToolRegistry();
+    const manager = new McpManager(registry);
+    await manager.start({ gitlab: { command: "test", safetyProfile: "gitlab-review" } });
+    expect(manager.listTools().map(tool => tool.name)).toEqual(["gitlab__get_commit", "gitlab__update_merge_request", "gitlab__create_merge_request_note"]);
+    expect(Object.keys(registry.get("gitlab__update_merge_request")!.inputSchema.properties as object)).toEqual(["project_id", "merge_request_iid", "description"]);
+    expect(registry.get("gitlab__update_merge_request")!.inputSchema).toMatchObject({ additionalProperties: false, required: ["project_id", "merge_request_iid", "description"] });
+    await expect(registry.execute("gitlab__delete_branch", {})).rejects.toThrow();
+    const tools = await testMcpConnection({ command: "test", safetyProfile: "gitlab-review" });
+    expect(tools.map(tool => tool.name)).toEqual(["get_commit", "update_merge_request", "create_merge_request_note"]);
+  });
+
+  it("rejects unsafe GitLab write arguments before contacting the server", async () => {
+    sdk.tools.push(...["update_merge_request", "create_merge_request_note", "create_merge_request_thread", "create_merge_request_discussion_note"].map(name => ({ name, inputSchema: { type: "object" } })));
+    const registry = new ToolRegistry();
+    const manager = new McpManager(registry);
+    await manager.start({ gitlab: { command: "test", safetyProfile: "gitlab-review", allowedTools: ["update_merge_request", "create_merge_request_note", "create_merge_request_thread", "create_merge_request_discussion_note"] } });
+    const target = { project_id: "team/project", merge_request_iid: "12" };
+    for (const extra of [{ title: "Renamed" }, { state_event: "close" }, { remove_source_branch: true }, { target_branch: "main" }]) {
+      await expect(registry.execute("gitlab__update_merge_request", { ...target, description: "Review description", ...extra })).rejects.toThrow();
+    }
+    for (const name of ["create_merge_request_note", "create_merge_request_thread", "create_merge_request_discussion_note"]) {
+      for (const body of ["Review\n/merge", "Review\r\n  /title Changed", "\t/close", "```\n/delete\n```"] ) {
+        await expect(registry.execute(`gitlab__${name}`, { ...target, body, ...(name.endsWith("discussion_note") ? { discussion_id: "d" } : {}) })).rejects.toThrow();
+      }
+    }
+    await expect(registry.execute("gitlab__update_merge_request", { ...target, description: "/title Renamed" })).rejects.toThrow();
+    await expect(registry.execute("gitlab__update_merge_request", { ...target, description: "" })).rejects.toThrow();
+    await expect(registry.execute("gitlab__update_merge_request", { project_id: "team/project", description: "Missing MR" })).rejects.toThrow();
+    expect(sdk.clients[0]!.callTool).not.toHaveBeenCalled();
+    await registry.execute("gitlab__update_merge_request", { ...target, description: "Clear description with https://example.com/reference" });
+    await registry.execute("gitlab__create_merge_request_note", { ...target, body: "Review findings" });
+    expect(sdk.clients[0]!.callTool).toHaveBeenCalledTimes(2);
+  });
+
   it("blocks tools outside the configured allowlist and propagates cancellation to MCP", async () => {
     const registry = new ToolRegistry(); const manager = new McpManager(registry);
     sdk.tools.push({ name: "read", inputSchema: {} }, { name: "write", inputSchema: {} });

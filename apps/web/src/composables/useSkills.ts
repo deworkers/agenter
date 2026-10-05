@@ -11,6 +11,10 @@ export function useSkills() {
   const addError = ref<string | null>(null);
 
   function toggleSkill(id: string): void {
+    if (!id) {
+      selectedSkillId.value = "";
+      return;
+    }
     if (!skills.value.some((skill) => skill.id === id && skill.enabled !== false)) return;
     selectedSkillId.value = selectedSkillId.value === id ? "" : id;
   }

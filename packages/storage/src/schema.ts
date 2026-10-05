@@ -3,6 +3,7 @@ export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS chats (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
+  title_custom INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS runs (
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
   status TEXT NOT NULL,
+  error_code TEXT,
   tokens_in INTEGER,
   tokens_out INTEGER,
   duration_ms INTEGER NOT NULL,

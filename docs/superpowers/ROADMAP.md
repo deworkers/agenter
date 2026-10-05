@@ -18,6 +18,13 @@ testable increment. A plan is not evidence that its code exists.
 | 8 | Model, skill, and tool UI | `plans/2026-09-21-phase8-ui.md` | UI implemented; settings/context/mobile follow-ups recorded in `plans/2026-09-28-settings-context-mobile.md`; check original acceptance criteria separately |
 | 9 | Reliability, security, observability, and cleanup | `plans/2026-09-21-phase9-reliability.md` | Planned |
 
+User-authorized follow-up (2026-10-01): the API enables an advisory model
+self-check after candidate answers. At most two self-check continuations are
+allowed in addition to the existing ten tool-call rounds. The self-check cannot
+execute tools; incomplete answers are marked in saved text. Provisional text is
+reset before continuation so the visible final answer matches storage. This is
+documented in the Phase 7 plan and does not complete Phase 9.
+
 User-authorized follow-up (2026-09-29): remove legacy configuration files/loaders,
 initialize the single working JSON from a tracked JSON template, and replace
 demonstration skills with web research, Context7 docs, complete code delivery,

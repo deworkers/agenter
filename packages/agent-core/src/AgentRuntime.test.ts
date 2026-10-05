@@ -11,6 +11,7 @@ function fakeStorage(initialHistory: StoredMessage[] = []): ChatStorage {
     createChat: vi.fn(),
     listChats: vi.fn(() => []),
     getChat: vi.fn(),
+    updateChatTitle: vi.fn(),
     deleteChat: vi.fn(),
     touchChat: vi.fn(),
     listMessages: vi.fn(() => [...history]),
@@ -143,6 +144,159 @@ describe("conversation compaction", () => {
 });
 
 describe("AgentRuntime.runTurn", () => {
+  it("checks a candidate answer without tools and publishes it only after a done verdict", async () => {
+    const storage = fakeStorage();
+    const requests: import("./types.js").LlmRequest[] = [];
+    const provider: LlmProvider = {
+      ...fakeProvider("fake", "test", []),
+      async *chat(request) {
+        requests.push(request);
+        if (requests.length === 1) {
+          yield { type: "text.delta", text: "Готовый ответ" };
+          yield { type: "done", usage: { promptTokens: 10, completionTokens: 2 } };
+        } else {
+          yield { type: "text.delta", text: '```json\n{"status":"done"}\n```' };
+          yield { type: "done", usage: { promptTokens: 5, completionTokens: 3 } };
+        }
+      },
+    };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig), { maxSelfCheckContinuations: 2 });
+    const events = [];
+    for await (const event of runtime.runTurn("c", "Сделай задачу")) events.push(event);
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.tools).toBeUndefined();
+    expect(events.filter((event) => (event as { type: string }).type === "run.phase").map((event) => (event as { stage: string }).stage)).toEqual(["waiting", "checking"]);
+    expect(requests[1]?.messages.at(-2)).toMatchObject({ role: "assistant", content: "Готовый ответ" });
+    expect(events.filter((event) => event.type === "text.delta")).toEqual([{ type: "text.delta", text: "Готовый ответ" }]);
+    expect(events.at(-1)).toEqual({ type: "run.completed", usage: { promptTokens: 15, completionTokens: 5 } });
+    expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "success", tokensIn: 15, tokensOut: 5 }), [], expect.objectContaining({ content: "Готовый ответ" }));
+  });
+
+  it("continues after a self-check verdict, can call a tool, and saves only the final answer", async () => {
+    const storage = fakeStorage();
+    const requests: import("./types.js").LlmRequest[] = [];
+    const provider: LlmProvider = {
+      ...fakeProvider("fake", "test", []), supportsTools: () => true,
+      async *chat(request) {
+        requests.push(request);
+        switch (requests.length) {
+          case 1: yield { type: "text.delta", text: "Нужна проверка." }; break;
+          case 2: yield { type: "text.delta", text: '{"status":"continue","reason":"Не проверены данные"}' }; break;
+          case 3: yield { type: "tool.call", call: { id: "call-1", name: "lookup", arguments: { q: "x" } } }; break;
+          case 4: yield { type: "text.delta", text: "Проверенный ответ" }; break;
+          case 5: yield { type: "text.delta", text: '{"status":"done"}' }; break;
+        }
+        yield { type: "done" };
+      },
+    };
+    const toolRuntime: AgentToolRuntime = { listTools: () => [{ name: "lookup", description: "", inputSchema: {} }], execute: vi.fn(async () => ({ value: 42 })) };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig), { toolRuntime, maxSelfCheckContinuations: 2 });
+    const events = [];
+    for await (const event of runtime.runTurn("c", "Проверь данные")) events.push(event);
+
+    expect(requests).toHaveLength(5);
+    expect(requests[1]?.tools).toBeUndefined();
+    expect(requests[3]?.messages).toContainEqual(expect.objectContaining({ role: "tool", toolCallId: "call-1", content: '{"value":42}' }));
+    expect(toolRuntime.execute).toHaveBeenCalledOnce();
+    expect(events.filter((event) => event.type === "text.delta" || event.type === "text.reset")).toEqual([
+      { type: "text.delta", text: "Нужна проверка." },
+      { type: "text.reset" },
+      { type: "text.delta", text: "Проверенный ответ" },
+    ]);
+    expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "success" }), [expect.objectContaining({ toolName: "lookup", status: "success" })], expect.objectContaining({ content: "Проверенный ответ" }));
+  });
+
+  it("stops after the self-check continuation limit and marks the saved answer incomplete", async () => {
+    const storage = fakeStorage();
+    let calls = 0;
+    const provider: LlmProvider = {
+      ...fakeProvider("fake", "test", []),
+      async *chat() {
+        calls++;
+        yield { type: "text.delta", text: calls % 2 ? `Черновик ${calls}` : '{"status":"continue","reason":"Нужна дальнейшая проверка"}' };
+        yield { type: "done" };
+      },
+    };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig), { maxSelfCheckContinuations: 1 });
+    const events = [];
+    for await (const event of runtime.runTurn("c", "Реши задачу")) events.push(event);
+
+    expect(calls).toBe(4);
+    const text = events.reduce((content, event) => event.type === "text.reset" ? "" : event.type === "text.delta" ? content + event.text : content, "");
+    expect(text).toContain("Черновик 3");
+    expect(text).toContain("Задача не завершена");
+    expect(text).not.toContain("Черновик 1");
+    expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "success" }), [], expect.objectContaining({ content: text }));
+  });
+
+  it("keeps the hard continuation cap even if an injected option requests infinity", async () => {
+    let calls = 0;
+    const provider: LlmProvider = {
+      ...fakeProvider("fake", "test", []),
+      async *chat() {
+        if (++calls > 8) throw new Error("Unbounded continuation");
+        yield { type: "text.delta", text: calls % 2 ? "Черновик" : '{"status":"continue"}' };
+        yield { type: "done" };
+      },
+    };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), fakeStorage(), new ProviderRouter(routingConfig), { maxSelfCheckContinuations: Number.POSITIVE_INFINITY });
+    const events = [];
+    for await (const event of runtime.runTurn("c", "Реши")) events.push(event);
+
+    expect(calls).toBe(6);
+    expect(events.at(-1)?.type).toBe("run.completed");
+  });
+
+  it.each([
+    ['{"status":"blocked","reason":"Нужен доступ к файлу"}', "Нужен доступ к файлу"],
+    ["not JSON", "Не удалось подтвердить завершение задачи"],
+  ])("keeps a candidate with an incomplete note when self-check returns %s", async (verdict, expectedReason) => {
+    const storage = fakeStorage();
+    let calls = 0;
+    const provider: LlmProvider = {
+      ...fakeProvider("fake", "test", []),
+      async *chat() {
+        yield { type: "text.delta", text: calls++ === 0 ? "Есть частичный результат" : verdict };
+        yield { type: "done" };
+      },
+    };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig), { maxSelfCheckContinuations: 2 });
+    const events = [];
+    for await (const event of runtime.runTurn("c", "Проверь")) events.push(event);
+
+    const text = events.filter((event) => event.type === "text.delta").map((event) => event.text).join("");
+    expect(calls).toBe(2);
+    expect(text).toContain("Задача не завершена");
+    expect(text).toContain(expectedReason);
+    expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "success" }), [], expect.objectContaining({ content: text }));
+  });
+
+  it("cancels during self-check without saving a successful assistant message", async () => {
+    const storage = fakeStorage();
+    const abort = new AbortController();
+    let calls = 0;
+    const provider: LlmProvider = {
+      ...fakeProvider("fake", "test", []),
+      async *chat() {
+        if (calls++ === 0) {
+          yield { type: "text.delta", text: "Черновик" };
+          yield { type: "done" };
+        } else {
+          abort.abort();
+          yield { type: "text.delta", text: '{"status":"done"}' };
+        }
+      },
+    };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig), { maxSelfCheckContinuations: 2 });
+    const events = [];
+    for await (const event of runtime.runTurn("c", "Проверь", { signal: abort.signal })) events.push(event);
+
+    expect(events.at(-1)).toEqual({ type: "run.error", code: "cancelled", message: "Генерация остановлена." });
+    expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error", errorCode: "cancelled" }), []);
+    expect(storage.listMessages("c")).toHaveLength(1);
+  });
+
   it("persists raw prompt and attachments separately, counts them and sends them in user context", async () => {
     const attachments = [{ id: "f1", name: "notes.md", source: "file" as const, content: "Important evidence ".repeat(30) }];
     const storage = fakeStorage([{ id: "old", chatId: "c", role: "user", content: "Earlier", attachments, provider: null, model: null, createdAt: "" }]);
@@ -166,7 +320,7 @@ describe("AgentRuntime.runTurn", () => {
     const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig));
     const events = [];
     for await (const event of runtime.runTurn("c", "Create a document", { responseFormat })) events.push(event);
-    expect(events.at(-1)).toEqual({ type: "run.error", message: "Модель завершила генерацию без содержимого файла. Повторите запрос или выберите другую модель." });
+    expect(events.at(-1)).toEqual({ type: "run.error", code: "invalid_response", message: "Модель завершила генерацию без содержимого файла. Повторите запрос или выберите другую модель." });
     expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error", tokensOut: 32000 }), []);
     expect(storage.listMessages("c")).toHaveLength(1);
   });
@@ -193,6 +347,30 @@ describe("AgentRuntime.runTurn", () => {
     expect(events.at(-1)).toMatchObject({ type: "run.error" });
     expect(calls).toBe(0);
   });
+  it("accounts and sends only the selected subset of a large tool catalog", async () => {
+    const definitions = Array.from({ length: 116 }, (_, i) => ({
+      name: `gitlab__tool_${i}`, description: "GitLab operation documentation ".repeat(40),
+      inputSchema: { type: "object", properties: { project: { type: "string" } } },
+    }));
+    const requests: import("./types.js").LlmRequest[] = [];
+    const provider: LlmProvider = {
+      ...fakeProvider("fake", "fake-model", []), supportsTools: () => true,
+      getContextWindow: () => 1_000_000,
+      async *chat(request) { requests.push(request); yield { type: "text.delta", text: "Done" }; yield { type: "done" }; },
+    };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), fakeStorage(), new ProviderRouter(routingConfig), {
+      toolRuntime: { listTools: () => definitions, execute: vi.fn() },
+    });
+    const allowedToolNames = ["gitlab__tool_0", "gitlab__tool_115"];
+    const full = runtime.previewTurn("c", "hello");
+    const subset = runtime.previewTurn("c", "hello", { allowedToolNames });
+    expect(subset.context.tools?.map(tool => tool.name)).toEqual(allowedToolNames);
+    expect(subset.context.budget!.breakdown.tools).toBeLessThan(full.context.budget!.breakdown.tools / 10);
+    expect(runtime.previewTurn("c", "hello", { allowedToolNames: [] }).context.budget!.breakdown.tools).toBe(0);
+    for await (const event of runtime.runTurn("c", "hello", { allowedToolNames })) void event;
+    expect(requests[0]?.tools?.map(tool => tool.name)).toEqual(allowedToolNames);
+  });
+
   it("advertises only allowed tools and never executes a tool outside that set", async () => {
     const storage = fakeStorage();
     const requests: string[][] = [];
@@ -258,6 +436,7 @@ describe("AgentRuntime.runTurn", () => {
 
     expect(events.filter((event) => event.type !== "run.context")).toEqual([
       { type: "run.started", provider: "fake", model: "fake-model" },
+      { type: "run.phase", stage: "waiting" },
       { type: "text.delta", text: "Hel" },
       { type: "text.delta", text: "lo!" },
       { type: "run.completed", usage: { promptTokens: 10, completionTokens: 2 } },
@@ -348,10 +527,10 @@ describe("AgentRuntime.runTurn", () => {
     }
 
     expect(events).toEqual([
-      { type: "run.error", message: 'Unknown provider "unknown-provider"' },
+      { type: "run.error", code: "provider_unavailable", message: "Provider request failed." },
     ]);
     expect(storage.addMessage).toHaveBeenCalledOnce();
-    expect(storage.addRun).not.toHaveBeenCalled();
+    expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ provider: "unknown-provider", model: "unknown", status: "error", errorCode: "provider_unavailable" }), []);
   });
 
   it("emits run.error and does not persist an assistant message when the provider errors", async () => {
@@ -368,7 +547,8 @@ describe("AgentRuntime.runTurn", () => {
 
     expect(events.filter((event) => event.type !== "run.context")).toEqual([
       { type: "run.started", provider: "fake", model: "fake-model" },
-      { type: "run.error", message: "Provider request failed." },
+      { type: "run.phase", stage: "waiting" },
+      { type: "run.error", code: "provider_unavailable", message: "Provider request failed." },
     ]);
     expect(storage.addMessage).toHaveBeenCalledOnce();
     expect(storage.completeRun).toHaveBeenCalledOnce();
@@ -386,8 +566,8 @@ describe("AgentRuntime.runTurn", () => {
     const events = [];
     for await (const event of runtime.runTurn("chat-1", "hi")) events.push(event);
 
-    expect(events.at(-1)).toEqual({ type: "run.error", message: "Таймаут запроса к модели. Увеличьте таймаут в настройках модели." });
-    expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error" }), []);
+    expect(events.at(-1)).toEqual({ type: "run.error", code: "timeout", message: "Таймаут запроса к модели. Увеличьте таймаут в настройках модели." });
+    expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error", errorCode: "timeout" }), []);
   });
 
   it("sanitizes a provider iterator exception and persists one error run", async () => {
@@ -410,7 +590,8 @@ describe("AgentRuntime.runTurn", () => {
 
     expect(events.filter((event) => event.type !== "run.context")).toEqual([
       { type: "run.started", provider: "fake", model: "fake-model" },
-      { type: "run.error", message: "Provider request failed." },
+      { type: "run.phase", stage: "waiting" },
+      { type: "run.error", code: "provider_unavailable", message: "Provider request failed." },
     ]);
     expect(storage.completeRun).toHaveBeenCalledOnce();
     expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error" }), []);
@@ -436,7 +617,8 @@ describe("AgentRuntime.runTurn", () => {
 
     expect(events.filter((event) => event.type !== "run.context")).toEqual([
       { type: "run.started", provider: "fake", model: "fake-model" },
-      { type: "run.error", message: "Tool calls are not enabled for this runtime." },
+      { type: "run.phase", stage: "waiting" },
+      { type: "run.error", code: "tool_not_allowed", message: "Tool calls are not enabled for this runtime." },
     ]);
     expect(storage.completeRun).toHaveBeenCalledOnce();
     expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error" }), [
@@ -469,7 +651,7 @@ describe("AgentRuntime.runTurn", () => {
     expect(requestTools).toBeUndefined();
     expect(events[1]).toMatchObject({ type: "run.context", context: { tools: [] } });
     expect(toolRuntime.execute).not.toHaveBeenCalled();
-    expect(events.at(-1)).toEqual({ type: "run.error", message: "Tool calls are not enabled for this runtime." });
+    expect(events.at(-1)).toEqual({ type: "run.error", code: "tool_not_allowed", message: "Tool calls are not enabled for this runtime." });
   });
 
   it("forwards activeSkillContent inside a single leading system message", async () => {
@@ -529,7 +711,7 @@ describe("AgentRuntime.runTurn", () => {
     const events = [];
     for await (const event of runtime.runTurn("chat-1", "hi")) events.push(event);
 
-    expect(events.map(({ type }) => type)).toEqual(["run.started", "run.context", "tool.started", "tool.completed", "run.context", "text.delta", "run.completed"]);
+    expect(events.map(({ type }) => type)).toEqual(["run.started", "run.context", "run.phase", "tool.started", "tool.completed", "run.context", "run.phase", "text.delta", "run.completed"]);
     expect(requests[0]?.tools).toEqual(toolRuntime.listTools());
     expect(requests[1]?.messages.slice(-2)).toEqual([
       { role: "assistant", content: null, toolCalls: [{ id: "c1", name: "lookup", arguments: { q: "x" } }] },
@@ -566,7 +748,7 @@ describe("AgentRuntime.runTurn", () => {
     const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig), { toolRuntime });
     const emitted = [];
     for await (const event of runtime.runTurn("chat-1", "hi")) emitted.push(event);
-    expect(emitted.at(-1)).toEqual({ type: "run.error", message: "Provider response ended before completion." });
+    expect(emitted.at(-1)).toEqual({ type: "run.error", code: "incomplete_response", message: "Provider response ended before completion." });
     expect(storage.completeRun).toHaveBeenCalledOnce();
     expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error" }), calls);
     expect(storage.addMessage).not.toHaveBeenCalledWith(expect.objectContaining({ role: "assistant" }));
@@ -582,7 +764,7 @@ describe("AgentRuntime.runTurn", () => {
     const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig));
     const emitted = [];
     for await (const event of runtime.runTurn("chat-1", "hi")) emitted.push(event);
-    expect(emitted.at(-1)).toEqual({ type: "run.error", message: "Run persistence failed." });
+    expect(emitted.at(-1)).toEqual({ type: "run.error", code: "persistence_failed", message: "Run persistence failed." });
     expect(JSON.stringify(emitted)).not.toContain("private storage details");
     expect(storage.completeRun).toHaveBeenCalledOnce();
     expect(storage.addMessage).not.toHaveBeenCalledWith(expect.objectContaining({ role: "assistant" }));
@@ -611,6 +793,38 @@ describe("AgentRuntime.runTurn", () => {
     ]);
   });
 
+  it("feeds only typed recoverable tool failures back to the model and never retries that tool", async () => {
+    const storage = fakeStorage();
+    let requests = 0;
+    const provider: LlmProvider = {
+      ...fakeProvider("fake", "fake-model", []),
+      supportsTools: () => true,
+      async *chat() {
+        requests++;
+        if (requests === 1) yield { type: "tool.call", call: { id: "call-1", name: "lookup", arguments: {} } };
+        else yield { type: "text.delta", text: "Источник недоступен, вот что можно сделать." };
+        yield { type: "done" };
+      },
+    };
+    const unavailable = Object.assign(new Error("private endpoint and token"), { code: "unavailable", recoverable: true });
+    const toolRuntime: AgentToolRuntime = {
+      listTools: () => [{ name: "lookup", description: "", inputSchema: {} }],
+      execute: vi.fn(async () => { throw unavailable; }),
+    };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig), { toolRuntime });
+    const events = [];
+    for await (const event of runtime.runTurn("chat-1", "hi")) events.push(event);
+
+    expect(requests).toBe(2);
+    expect(toolRuntime.execute).toHaveBeenCalledOnce();
+    expect(events).toContainEqual({ type: "tool.failed", tool: "lookup", code: "tool_unavailable" });
+    expect(events.at(-1)?.type).toBe("run.completed");
+    expect(JSON.stringify(events)).not.toContain("private endpoint");
+    expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "success" }), [
+      { toolName: "lookup", arguments: "{}", result: JSON.stringify({ error: { code: "unavailable", message: "Источник инструмента временно недоступен." } }), status: "error" },
+    ], expect.anything());
+  });
+
   it("stops after a failing call and persists later calls as skipped", async () => {
     const storage = fakeStorage();
     const provider: LlmProvider = {
@@ -631,6 +845,8 @@ describe("AgentRuntime.runTurn", () => {
       { toolName: "bad", arguments: "{}", result: null, status: "error" },
       { toolName: "later", arguments: "{}", result: null, status: "skipped" },
     ]);
+    expect(events.at(-1)).toMatchObject({ type: "run.error", code: "tool_failed" });
+    expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ errorCode: "tool_failed" }), expect.any(Array));
     expect(JSON.stringify(events)).not.toContain("private result");
   });
 
@@ -660,7 +876,7 @@ describe("AgentRuntime.runTurn", () => {
     const events = [];
     for await (const event of runtime.runTurn("chat-1", "hi")) events.push(event);
 
-    expect(events.at(-1)).toEqual({ type: "run.error", message: "Tool execution failed." });
+    expect(events.at(-1)).toEqual({ type: "run.error", code: "tool_not_allowed", message: "Tool execution failed." });
     expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error" }), [
       { toolName, arguments: "{}", result: null, status: "error" },
     ]);
@@ -723,9 +939,25 @@ describe("AgentRuntime.runTurn", () => {
     const resultRuntime = new AgentRuntime(registryWith([resultProvider], "fake"), resultStorage, new ProviderRouter(routingConfig), { toolRuntime: resultTools });
     const resultEvents = [];
     for await (const event of resultRuntime.runTurn("chat-1", "hi")) resultEvents.push(event);
-    expect(resultEvents.at(-1)?.type).toBe("run.error");
-    expect(resultStorage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error" }), [
+    expect(resultEvents.at(-1)).toEqual({ type: "run.error", code: "tool_invalid_result", message: "Tool execution failed." });
+    expect(resultStorage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error", errorCode: "tool_invalid_result" }), [
       { toolName: "bad", arguments: "{}", result: null, status: "error" },
+    ]);
+  });
+
+  it("rejects and categorizes tool results over the size limit", async () => {
+    const storage = fakeStorage();
+    const provider: LlmProvider = {
+      ...fakeProvider("fake", "fake-model", [{ type: "tool.call", call: { id: "call", name: "large", arguments: {} } }, { type: "done" }]),
+      supportsTools: () => true,
+    };
+    const toolRuntime: AgentToolRuntime = { listTools: () => [{ name: "large", description: "", inputSchema: {} }], execute: vi.fn(async () => "x".repeat(1_000_001)) };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), storage, new ProviderRouter(routingConfig), { toolRuntime });
+    const events = [];
+    for await (const event of runtime.runTurn("chat-1", "hi")) events.push(event);
+    expect(events.at(-1)).toEqual({ type: "run.error", code: "tool_result_too_large", message: "Tool execution failed." });
+    expect(storage.completeRun).toHaveBeenCalledWith(expect.objectContaining({ status: "error", errorCode: "tool_result_too_large" }), [
+      { toolName: "large", arguments: "{}", result: null, status: "error" },
     ]);
   });
 
@@ -752,5 +984,25 @@ describe("AgentRuntime.runTurn", () => {
       { toolName: "lookup", arguments: "{}", result: "true", status: "success" },
       { toolName: "lookup", arguments: "{}", result: null, status: "skipped" },
     ]);
+  });
+
+  it.each([Number.POSITIVE_INFINITY, Number.NaN])("keeps the hard tool-round cap for an invalid injected limit %s", async (limit) => {
+    let turns = 0;
+    const provider: LlmProvider = {
+      ...fakeProvider("fake", "test", []), supportsTools: () => true,
+      async *chat() {
+        if (++turns > 12) throw new Error("Unbounded tool loop");
+        yield { type: "tool.call", call: { id: `call-${turns}`, name: "lookup", arguments: {} } };
+        yield { type: "done" };
+      },
+    };
+    const toolRuntime: AgentToolRuntime = { listTools: () => [{ name: "lookup", description: "", inputSchema: {} }], execute: vi.fn(async () => true) };
+    const runtime = new AgentRuntime(registryWith([provider], "fake"), fakeStorage(), new ProviderRouter(routingConfig), { toolRuntime, maxToolIterations: limit });
+    const events = [];
+    for await (const event of runtime.runTurn("c", "Реши")) events.push(event);
+
+    expect(turns).toBe(11);
+    expect(toolRuntime.execute).toHaveBeenCalledTimes(10);
+    expect(events.at(-1)?.type).toBe("run.error");
   });
 });

@@ -2,11 +2,12 @@ import type { ProviderSummary, SkillSummary } from "../api/types.js";
 import type { PickerOption } from "./useOptionPicker.js";
 
 export function providerPickerOptions(providers: ProviderSummary[], defaultProviderId: string): PickerOption[] {
+  const defaultProvider = providers.find((provider) => provider.id === defaultProviderId);
   return [
     {
       value: "auto",
       label: "Автоматически",
-      detail: defaultProviderId ? `Выбор по задаче · базовая модель ${defaultProviderId}` : "Выбор модели по задаче",
+      detail: defaultProviderId ? `Автовыбор по задаче · модель по умолчанию ${defaultProvider?.label || defaultProviderId}` : "Автовыбор модели по задаче",
       triggerLabel: "Auto",
       badge: "По задаче",
     },

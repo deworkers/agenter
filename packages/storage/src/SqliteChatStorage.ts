@@ -14,14 +14,41 @@ import type {
 } from "@agenter/agent-core";
 import { SCHEMA_SQL } from "./schema.js";
 
+const DEFAULT_CHAT_TITLES = ["New chat", "Новый чат"];
+
+function firstMessageTitle(content: string, attachments: NewMessageInput["attachments"]): string {
+  const prompt = content.trim().replace(/\s+/g, " ");
+  const attachmentName = attachments?.find((attachment) => attachment.name.trim() && !(attachment.source === "clipboard" && attachment.name === "Из буфера.txt"))?.name;
+  const title = prompt || attachmentName || (attachments?.length ? "Вложения" : "Новый чат");
+  const characters = Array.from(title);
+  return characters.length > 60 ? `${characters.slice(0, 59).join("").trimEnd()}…` : title;
+}
+
+function legacyTitle(content: string, documentsJson: string | null): string {
+  const prompt = content.trim().replace(/\s+/g, " ");
+  if (prompt) return prompt;
+  try {
+    const documents = documentsJson ? JSON.parse(documentsJson) as { attachments?: Array<{ name?: unknown }> } : undefined;
+    const attachmentName = documents?.attachments?.[0]?.name;
+    if (typeof attachmentName === "string" && attachmentName.trim()) return attachmentName.trim();
+  } catch {
+    // Invalid legacy document metadata falls back to the old empty-message label.
+  }
+  return "Вложения";
+}
+
 export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage {
   private readonly db: DatabaseSync;
 
   constructor(dbPath: string) {
     this.db = new DatabaseSync(dbPath);
     this.db.exec(SCHEMA_SQL);
+    const chatColumns = this.db.prepare("PRAGMA table_info(chats)").all() as Array<{ name: string }>;
+    if (!chatColumns.some(({ name }) => name === "title_custom")) this.db.exec("ALTER TABLE chats ADD COLUMN title_custom INTEGER NOT NULL DEFAULT 0");
+    this.migrateLegacyChatTitles();
     const columns = this.db.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>;
     if (!columns.some(({ name }) => name === "assistant_message_id")) this.db.exec("ALTER TABLE runs ADD COLUMN assistant_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL");
+    if (!columns.some(({ name }) => name === "error_code")) this.db.exec("ALTER TABLE runs ADD COLUMN error_code TEXT");
     this.db.exec(`UPDATE runs SET assistant_message_id = (
       SELECT a.id FROM messages a WHERE a.chat_id = runs.chat_id AND a.role = 'assistant'
       AND a.rowid > (SELECT rowid FROM messages WHERE id = runs.message_id)
@@ -46,15 +73,12 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
 
   listChats(): Chat[] {
     const rows = this.db
-      .prepare(`SELECT chats.id, COALESCE((SELECT COALESCE(NULLIF(trim(replace(replace(content, char(10), ' '), char(13), ' ')), ''),
-        (SELECT json_extract(payload, '$.attachments[0].name') FROM message_documents WHERE message_id = messages.id), 'Вложения')
-        FROM messages WHERE chat_id = chats.id AND role = 'user' ORDER BY rowid DESC LIMIT 1), chats.title) AS title,
-        chats.created_at, chats.updated_at FROM chats ORDER BY chats.updated_at DESC`)
+      .prepare("SELECT id, title, created_at, updated_at FROM chats ORDER BY updated_at DESC")
       .all() as Array<{ id: string; title: string; created_at: string; updated_at: string }>;
 
     return rows.map((row) => ({
       id: row.id,
-      title: row.title.replace(/\s+/g, " ").trim(),
+      title: row.title,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
@@ -62,15 +86,20 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
 
   getChat(id: string): Chat | undefined {
     const row = this.db
-      .prepare(`SELECT chats.id, COALESCE((SELECT COALESCE(NULLIF(trim(replace(replace(content, char(10), ' '), char(13), ' ')), ''),
-        (SELECT json_extract(payload, '$.attachments[0].name') FROM message_documents WHERE message_id = messages.id), 'Вложения')
-        FROM messages WHERE chat_id = chats.id AND role = 'user' ORDER BY rowid DESC LIMIT 1), chats.title) AS title,
-        chats.created_at, chats.updated_at FROM chats WHERE chats.id = ?`)
+      .prepare("SELECT id, title, created_at, updated_at FROM chats WHERE id = ?")
       .get(id) as { id: string; title: string; created_at: string; updated_at: string } | undefined;
 
     if (!row) return undefined;
 
-    return { id: row.id, title: row.title.replace(/\s+/g, " ").trim(), createdAt: row.created_at, updatedAt: row.updated_at };
+    return { id: row.id, title: row.title, createdAt: row.created_at, updatedAt: row.updated_at };
+  }
+
+  updateChatTitle(id: string, title: string): Chat | undefined {
+    const normalized = title.trim();
+    if (!normalized || Array.from(normalized).length > 120) throw new RangeError("Invalid chat title");
+    const result = this.db.prepare("UPDATE chats SET title = ?, title_custom = 1, updated_at = ? WHERE id = ?")
+      .run(normalized, new Date().toISOString(), id);
+    return Number(result.changes) ? this.getChat(id) : undefined;
   }
 
   deleteChat(id: string): void {
@@ -79,6 +108,20 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
 
   touchChat(id: string): void {
     this.db.prepare(`UPDATE chats SET updated_at = ? WHERE id = ?`).run(new Date().toISOString(), id);
+  }
+
+  private migrateLegacyChatTitles(): void {
+    const placeholders = DEFAULT_CHAT_TITLES.map(() => "?").join(", ");
+    const chats = this.db.prepare(`SELECT id FROM chats WHERE title_custom = 0 AND title IN (${placeholders})`)
+      .all(...DEFAULT_CHAT_TITLES) as Array<{ id: string }>;
+    const latestUserMessage = this.db.prepare(`SELECT messages.content, message_documents.payload AS documents_json
+      FROM messages LEFT JOIN message_documents ON message_documents.message_id = messages.id
+      WHERE messages.chat_id = ? AND messages.role = 'user' ORDER BY messages.rowid DESC LIMIT 1`);
+    const updateTitle = this.db.prepare("UPDATE chats SET title = ? WHERE id = ? AND title_custom = 0");
+    for (const chat of chats) {
+      const message = latestUserMessage.get(chat.id) as { content: string; documents_json: string | null } | undefined;
+      if (message) updateTitle.run(legacyTitle(message.content, message.documents_json), chat.id);
+    }
   }
 
   getContextCheckpoint(chatId: string): ContextCheckpoint | undefined {
@@ -123,11 +166,11 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
       ...(row.context_json ? { context: JSON.parse(row.context_json) as StoredMessage["context"] } : {}),
       ...(row.documents_json ? JSON.parse(row.documents_json) as Pick<StoredMessage, "attachments" | "responseFormat"> : {}),
     }));
-    const runs = this.db.prepare("SELECT id, message_id, assistant_message_id, provider, model, status, duration_ms, tokens_in, tokens_out, created_at FROM runs WHERE chat_id = ? ORDER BY rowid").all(chatId) as Array<{ id: string; message_id: string; assistant_message_id: string | null; provider: string; model: string; status: string; duration_ms: number; tokens_in: number | null; tokens_out: number | null; created_at: string }>;
+    const runs = this.db.prepare("SELECT id, message_id, assistant_message_id, provider, model, status, error_code, duration_ms, tokens_in, tokens_out, created_at FROM runs WHERE chat_id = ? ORDER BY rowid").all(chatId) as Array<{ id: string; message_id: string; assistant_message_id: string | null; provider: string; model: string; status: string; error_code: StoredMessage["errorCode"] | null; duration_ms: number; tokens_in: number | null; tokens_out: number | null; created_at: string }>;
     for (const run of runs) {
       let message = messages.find((item) => item.id === run.assistant_message_id);
       if (!message && run.status !== "success") {
-        message = { id: `run-${run.id}`, chatId, role: "assistant", content: "", provider: run.provider, model: run.model, createdAt: run.created_at, error: "Запрос не завершён успешно." };
+        message = { id: `run-${run.id}`, chatId, role: "assistant", content: "", provider: run.provider, model: run.model, createdAt: run.created_at, error: "Запрос не завершён успешно.", ...(run.error_code ? { errorCode: run.error_code } : {}) };
         const index = messages.findIndex((item) => item.id === run.message_id);
         messages.splice(index < 0 ? messages.length : index + 1, 0, message);
       }
@@ -178,7 +221,13 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
       this.db.prepare(`INSERT INTO message_contexts (message_id, payload) VALUES (?, ?)`).run(message.id, contextJson);
     }
     if (documentsJson) this.db.prepare("INSERT INTO message_documents (message_id, payload) VALUES (?, ?)").run(message.id, documentsJson);
-    if (input.role === "user") this.touchChat(input.chatId);
+    if (input.role === "user") {
+      const placeholders = DEFAULT_CHAT_TITLES.map(() => "?").join(", ");
+      this.db.prepare(`UPDATE chats SET title = ? WHERE id = ? AND title_custom = 0 AND title IN (${placeholders})
+        AND (SELECT COUNT(*) FROM messages WHERE chat_id = ? AND role = 'user') = 1`)
+        .run(firstMessageTitle(input.content, input.attachments), input.chatId, ...DEFAULT_CHAT_TITLES, input.chatId);
+      this.touchChat(input.chatId);
+    }
 
     return message;
   }
@@ -199,8 +248,8 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
 
     this.db
       .prepare(
-        `INSERT INTO runs (id, chat_id, message_id, provider, model, status, tokens_in, tokens_out, duration_ms, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO runs (id, chat_id, message_id, provider, model, status, error_code, tokens_in, tokens_out, duration_ms, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         run.id,
@@ -209,6 +258,7 @@ export class SqliteChatStorage implements ChatStorage, ContextCheckpointStorage 
         run.provider,
         run.model,
         run.status,
+        input.errorCode ?? null,
         run.tokensIn,
         run.tokensOut,
         run.durationMs,

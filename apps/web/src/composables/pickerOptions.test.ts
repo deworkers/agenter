@@ -4,15 +4,15 @@ import { providerPickerOptions, skillPickerOptions } from "./pickerOptions.js";
 describe("picker options", () => {
   it("keeps a full model path in the menu and a short label in the trigger", () => {
     const options = providerPickerOptions([
-      { id: "local", model: "E:\\models\\Ornith-1.5-9B-MTP-NVFP4.gguf" },
+      { id: "local", model: "E:\\models\\Ornith-1.5-9B-MTP-NVFP4.gguf", label: "Local model" },
       { id: "api-smart", model: "gpt-4.1" },
     ], "local");
 
-    expect(options[0]).toMatchObject({ value: "auto", triggerLabel: "Auto" });
+    expect(options[0]).toMatchObject({ value: "auto", triggerLabel: "Auto", detail: "Автовыбор по задаче · модель по умолчанию Local model" });
     expect(options[1]).toMatchObject({
       value: "local",
       detail: "E:\\models\\Ornith-1.5-9B-MTP-NVFP4.gguf",
-      triggerLabel: "local · Ornith-1.5-9B-MTP-NVFP4.gguf",
+      triggerLabel: "Local model",
       badge: "По умолчанию",
     });
   });

@@ -258,3 +258,15 @@ positional argument to use `{ systemPrompt: "..." }`.
 - Auto-routing sends `toolsRequired` when safe tools are available; manual provider selection is unchanged.
 - No UI, new HTTP endpoint, schema migration, real external LLM/MCP dependency, or provider-specific logic in `AgentRuntime` is introduced.
 - Root typecheck, lint (no new errors), tests, diff-check and broad review are evidenced on Node >=24.
+
+## Follow-up: answer self-check (user-authorized 2026-10-01)
+
+The API runtime now uses a separate no-tools model request to judge each
+candidate answer as `done`, `continue`, or `blocked`. A `continue` verdict can
+start at most two additional provider turns; the original ten tool-call rounds
+still apply. The check request never executes tools, and its JSON is not sent
+as answer text. A provisional streamed answer is cleared with `text.reset`
+before a continuation. Only the final answer is stored. On a blocker, invalid
+check, insufficient context, or continuation limit, the saved answer includes
+an explicit incomplete note. Cancellation remains an error run. Self-check is
+advisory and cannot prove that a real-world task succeeded.

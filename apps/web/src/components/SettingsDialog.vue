@@ -10,10 +10,12 @@ import type {
 } from '../api/types.js';
 import SkillDialog from './SkillDialog.vue';
 import ResourceDialog from './ResourceDialog.vue';
+import McpToolSelection from './McpToolSelection.vue';
 import {
     stageResource,
     type ResourceDraft,
 } from '../composables/resourceDrafts.js';
+import { useModalFocus } from '../composables/useModalFocus.js';
 
 const props = defineProps<{
     skills: SkillSummary[];
@@ -50,6 +52,8 @@ const skillError = ref<string | null>(null);
 const discovered = ref<
     Record<string, Array<{ name: string; description: string }>>
 >({});
+const dialogElement = ref<HTMLElement | null>(null);
+useModalFocus(dialogElement);
 const model = computed(() => settings.value?.providers[selectedModel.value]);
 const server = computed(() => settings.value?.mcpServers[selectedServer.value]);
 const serverTools = computed(
@@ -124,6 +128,7 @@ function remove(kind: 'model' | 'mcp'): void {
 function changeTransport(value: string): void {
     if (!settings.value || !server.value) return;
     const common = {
+        safetyProfile: server.value.safetyProfile,
         enabled: server.value.enabled,
         allowedTools: server.value.allowedTools,
     };
@@ -154,13 +159,6 @@ function parseServerField(field: 'args' | 'env', value: string): void {
     } catch {
         error.value = `Поле ${field} должно содержать корректный JSON`;
     }
-}
-function allow(name: string, checked: boolean): void {
-    if (!server.value) return;
-    const list = server.value.allowedTools ?? [];
-    server.value.allowedTools = checked
-        ? [...new Set([...list, name])]
-        : list.filter((item) => item !== name);
 }
 async function checkServer(): Promise<void> {
     const result = await test('mcp', selectedServer.value);
@@ -213,7 +211,9 @@ async function persist(): Promise<void> {
         class="dialog-backdrop"
         @keydown.esc="emit('close')">
         <section
+            ref="dialogElement"
             class="settings-dialog"
+            tabindex="-1"
             role="dialog"
             aria-modal="true"
             aria-labelledby="settings-title">
@@ -534,57 +534,18 @@ async function persist(): Promise<void> {
                                     Удалить сервер
                                 </button>
                             </div>
-                            <label class="check-label"
-                                ><input
-                                    type="checkbox"
-                                    :checked="server.allowedTools === undefined"
-                                    @change="
-                                        server.allowedTools = (
-                                            $event.target as HTMLInputElement
-                                        ).checked
-                                            ? undefined
-                                            : []
-                                    " />Разрешить все функции сервера</label
-                            >
-                            <small v-if="server.allowedTools === undefined"
-                                >Разрешены все функции, включая операции записи.
-                                Для ограничения снимите переключатель.</small
-                            >
-                            <template v-else>
-                                <p>
-                                    Разрешено: {{ server.allowedTools.length }}.
-                                    Пустой список запрещает все вызовы.
-                                </p>
-                                <label
-                                    v-for="tool in serverTools"
-                                    :key="tool.name"
-                                    class="settings-tool"
-                                    ><input
-                                        type="checkbox"
-                                        :checked="
-                                            server.allowedTools.includes(
-                                                tool.name,
-                                            )
-                                        "
-                                        @change="
-                                            allow(
-                                                tool.name,
-                                                (
-                                                    $event.target as HTMLInputElement
-                                                ).checked,
-                                            )
-                                        " /><span
-                                        ><strong>{{ tool.name }}</strong
-                                        ><small>{{
-                                            tool.description
-                                        }}</small></span
-                                    ></label
-                                >
-                                <p v-if="!serverTools.length">
-                                    Проверьте подключение, чтобы получить список
-                                    функций.
-                                </p>
-                            </template>
+              <p
+                v-if="server.safetyProfile === 'gitlab-review'"
+                class="mcp-tools-help"
+              >
+                Профиль GitLab review: чтение, новые комментарии и изменение только описания MR.
+                Удаление, переименование, merge и команды / в текстах заблокированы.
+              </p>
+              <McpToolSelection
+                :key="selectedServer"
+                v-model="server.allowedTools"
+                :tools="serverTools"
+              />
                         </div>
                     </template>
                     <div

@@ -12,6 +12,11 @@ const config = () => ({ version: 1, defaultProvider: "local", providers: { local
 } }, routes: Object.fromEntries(["simple", "coding", "reasoning", "research", "vision"].map((key) => [key, { provider: "local" }])), mcpServers: {} });
 
 describe("settings", () => {
+  it("accepts the GitLab review profile and rejects unknown profiles", () => {
+    const entry = { transport: "sse", url: "http://localhost:8001/gitlab/sse", safetyProfile: "gitlab-review", allowedTools: ["get_commit"] };
+    expect(validateSettings({ ...config(), mcpServers: { gitlab: entry } }).mcpServers.gitlab).toEqual(entry);
+    expect(() => validateSettings({ ...config(), mcpServers: { gitlab: { ...entry, safetyProfile: "anything" } } })).toThrow();
+  });
   it("shows the current base instruction for old configs and persists an edited or empty instruction", () => {
     const old = config();
     expect(validateSettings(old).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);

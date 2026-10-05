@@ -46,6 +46,7 @@ export interface ModelSettings {
   supportsTools?: boolean; enabled?: boolean;
 }
 export interface ServerSettings {
+  safetyProfile?: "gitlab-review";
   transport?: "stdio" | "sse"; url?: string; command?: string; args?: string[];
   env?: Record<string, string>; allowedTools?: string[]; enabled?: boolean;
 }
@@ -98,6 +99,7 @@ export interface StoredMessage {
   durationMs?: number;
   usage?: TokenUsage;
   error?: string;
+  errorCode?: "cancelled" | "timeout" | "provider_unavailable" | "invalid_response" | "context_over_limit" | "tool_not_allowed" | "tool_failed" | "tool_unavailable" | "tool_invalid_result" | "tool_result_too_large" | "incomplete_response" | "persistence_failed";
 }
 
 export interface TokenUsage {
@@ -112,12 +114,15 @@ export interface CompactResult {
 
 export type AgentEvent =
   | { type: "run.started"; provider: string; model: string }
+  | { type: "run.phase"; stage: "waiting" | "checking" }
   | { type: "run.context"; context: RequestContext }
   | { type: "text.delta"; text: string }
+  | { type: "text.reset" }
   | { type: "tool.started"; tool: string; arguments: unknown }
   | { type: "tool.completed"; tool: string; result: unknown }
+  | { type: "tool.failed"; tool: string; code: "tool_unavailable" }
   | { type: "run.completed"; usage?: TokenUsage }
-  | { type: "run.error"; message: string };
+  | { type: "run.error"; message: string; code?: NonNullable<StoredMessage["errorCode"]> };
 
 export interface SendMessageOptions {
   attachments?: TextAttachment[];
@@ -140,4 +145,8 @@ export interface DisplayMessage extends StoredMessage {
   tools?: ToolActivity[];
   durationMs?: number;
   error?: string;
+  runPhase?: "waiting" | "receiving" | "tool" | "checking" | "completed" | "error";
+  currentTool?: string;
+  provisional?: boolean;
+  runStartedAt?: number;
 }

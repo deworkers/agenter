@@ -13,8 +13,10 @@ import SettingsDialog from "./components/SettingsDialog.vue";
 import { useContext } from "./composables/useContext.js";
 import { parseChatCommand } from "./composables/chatCommands.js";
 
-const { chats, activeChat, messages, isStreaming, isCompacting, contextRevision, compact, refreshChats, newChat, showHome, openChat, removeChat, sendMessage, stopGeneration } = useChats();
+const { chats, activeChat, messages, isStreaming, activeRunChatId, isCompacting, contextRevision, compact, refreshChats, newChat, showHome, openChat, removeChat, renameChat, sendMessage, stopGeneration } = useChats();
 const busy = computed(() => isStreaming.value || isCompacting.value);
+const isStreamingHere = computed(() => isStreaming.value && activeRunChatId.value === activeChat.value?.id);
+const activeRunChat = computed(() => chats.value.find(chat => chat.id === activeRunChatId.value) ?? null);
 const { providers, defaultProviderId, selectedProviderId, isLoading: providersLoading, error: providersError, refreshProviders } = useProviders();
 const { skills, selectedSkillId, isLoading: skillsLoading, error: skillsError, isAdding: skillAdding, addError: skillAddError, refreshSkills, addSkill, toggleSkill } = useSkills();
 const { servers, tools, activeServerIds, manualServerIds, automaticServerIds, isLoading: mcpLoading, error: mcpError, refreshMcp, toggleServer, restoreSelection, applySkillServers } = useMcp();
@@ -36,8 +38,8 @@ const sendOptions = computed(() => ({
   ...(attachments.value.length ? { attachments: attachments.value } : {}),
   ...(responseFormat.value !== "text" ? { responseFormat: responseFormat.value } : {}),
 }));
-const { budget: previewBudget, error: contextError, updating: contextUpdating } = useContext(() => ({ chatId: activeChat.value?.id ?? "", content: draft.value, options: sendOptions.value, revision: messages.value.length + contextRevision.value, streaming: busy.value }));
-const budget = computed(() => isStreaming.value ? messages.value.findLast((item) => item.role === "user")?.context?.budget ?? previewBudget.value : previewBudget.value);
+const { budget: previewBudget, error: contextError, updating: contextUpdating } = useContext(() => ({ chatId: activeChat.value?.id ?? "", content: draft.value, options: sendOptions.value, revision: messages.value.length + contextRevision.value, streaming: isStreamingHere.value || isCompacting.value }));
+const budget = computed(() => isStreamingHere.value ? messages.value.findLast((item) => item.role === "user")?.context?.budget ?? previewBudget.value : previewBudget.value);
 function preferenceKey(): string { return `agenter:chat:${activeChat.value?.id ?? 'new'}`; }
 let restoring = false;
 watch([draft, attachments, responseFormat, selectedProviderId, selectedSkillId, manualServerIds, automaticServerIds, historyLimit], () => {
@@ -45,7 +47,7 @@ watch([draft, attachments, responseFormat, selectedProviderId, selectedSkillId, 
   try { localStorage.setItem(preferenceKey(), JSON.stringify({ draft: draft.value, attachments: attachments.value, responseFormat: responseFormat.value, providerId: selectedProviderId.value, skillId: selectedSkillId.value, serverIds: activeServerIds.value, manualServerIds: manualServerIds.value, automaticServerIds: automaticServerIds.value, historyLimit: historyLimit.value })); } catch { /* Storage may be unavailable. */ }
 }, { deep: true, flush: "sync" });
 async function selectChat(id: string): Promise<void> {
-  if (busy.value) return;
+  if (isCompacting.value) return;
   try {
     restoring = true;
     const saved = localStorage.getItem(`agenter:chat:${id}`);
@@ -64,9 +66,12 @@ async function selectChat(id: string): Promise<void> {
   } catch { chatError.value = "Не удалось открыть чат"; }
   finally { restoring = false; }
 }
+function returnToGeneration(): void {
+  if (activeRunChatId.value) void selectChat(activeRunChatId.value);
+}
 watch(() => activeChat.value?.id, () => { if (!restoring) { draft.value = ""; attachments.value = []; responseFormat.value = "text"; } });
 async function handleNewChat(): Promise<void> {
-  if (busy.value) return;
+  if (isCompacting.value) return;
   try { await newChat(); mobileMenu.value = false; chatError.value = ""; }
   catch { chatError.value = "Не удалось создать чат"; }
 }
@@ -75,14 +80,14 @@ async function refreshSkillsAndBindings(): Promise<void> {
   const oldLinks = JSON.stringify(oldSkill?.mcpServers ?? []);
   await refreshSkills();
   const newSkill = skills.value.find((item) => item.id === selectedSkillId.value);
-  if (newSkill && oldLinks !== JSON.stringify(newSkill.mcpServers ?? [])) applySkillServers(newSkill.mcpServers ?? []);
+  if (!newSkill || oldLinks !== JSON.stringify(newSkill.mcpServers ?? [])) applySkillServers(newSkill?.mcpServers ?? []);
 }
 async function reloadCatalogs(): Promise<void> { await Promise.all([refreshProviders(), refreshMcp()]); await refreshSkillsAndBindings(); }
 
 function handleToggleSkill(id: string): void {
   toggleSkill(id);
   const selected = skills.value.find((item) => item.id === selectedSkillId.value);
-  if (selected) applySkillServers(selected.mcpServers ?? []);
+  applySkillServers(selected?.mcpServers ?? []);
 }
 function openSettings(section: "models" | "mcp" = "models"): void { settingsSection.value = section; settingsOpen.value = true; }
 
@@ -98,6 +103,7 @@ onMounted(() => { resizeViewport(); viewport?.addEventListener("resize", resizeV
 onUnmounted(() => { viewport?.removeEventListener("resize", resizeViewport); window.removeEventListener("resize", resizeViewport); });
 
 async function handleSend(content: string, files: TextAttachment[] = []): Promise<void> {
+  if (isStreaming.value || isCompacting.value) return;
   commandNotice.value = "";
   const command = parseChatCommand(content);
   if (command) {
@@ -131,10 +137,22 @@ async function handleCompact(): Promise<void> {
   } catch (cause) { commandNotice.value = cause instanceof DOMException && cause.name === "AbortError" ? "Сжатие остановлено. Прежний контекст сохранён." : cause instanceof Error ? cause.message : "Не удалось сжать контекст."; }
 }
 
+async function handleRetry(content: string, files: TextAttachment[]): Promise<void> {
+  if (busy.value || !activeChat.value) return;
+  if (!window.confirm("Инструменты могли частично выполниться. Создать новый запуск? Повтор может повторить внешние действия.")) return;
+  try { await sendMessage(content, { ...sendOptions.value, attachments: files }); }
+  catch { chatError.value = "Не удалось повторить запрос"; }
+}
+
 async function handleDelete(id: string): Promise<void> {
-  if (busy.value) return;
+  if (isCompacting.value || activeRunChatId.value === id) return;
   if (!window.confirm("Удалить этот чат и его историю?")) return;
   try { await removeChat(id); } catch { chatError.value = "Не удалось удалить чат"; }
+}
+
+async function handleRenameChat(id: string, title: string): Promise<void> {
+  try { await renameChat(id, title); chatError.value = ""; }
+  catch { chatError.value = "Не удалось переименовать чат"; }
 }
 
 async function handleAddSkill(input: NewSkillInput): Promise<void> {
@@ -160,9 +178,13 @@ function openSkillDialog(): void {
       :chats="chats"
       :active-chat-id="activeChat?.id ?? null"
       :mobile-open="mobileMenu"
-      :busy="busy"
+      :busy="isCompacting"
+      :active-run-chat-id="activeRunChatId"
       :servers="servers"
+      :tools="tools"
       :active-server-ids="activeServerIds"
+      :manual-server-ids="manualServerIds"
+      :automatic-server-ids="automaticServerIds"
       :skills="skills"
       :selected-skill-id="selectedSkillId"
       :capabilities-loading="skillsLoading || mcpLoading"
@@ -176,6 +198,7 @@ function openSkillDialog(): void {
       @home="showHome(); mobileMenu=false"
       @select-chat="selectChat"
       @delete-chat="handleDelete"
+      @rename-chat="handleRenameChat"
     />
     <ChatView
       ref="chatView"
@@ -186,7 +209,9 @@ function openSkillDialog(): void {
       v-model:history-limit="historyLimit"
       :messages="messages"
       :chats="chats"
-      :is-streaming="busy"
+      :is-streaming="isStreamingHere"
+      :generation-active="isStreaming"
+      :active-generation-chat-title="activeRunChat?.title ?? 'диалог'"
       :active-chat="activeChat"
       :providers="providers"
       :default-provider-id="defaultProviderId"
@@ -199,6 +224,8 @@ function openSkillDialog(): void {
       @retry-providers="refreshProviders"
       @select-chat="selectChat"
       @send="handleSend"
+      @retry="handleRetry"
+      @return-to-generation="returnToGeneration"
       @settings="openSettings()"
       @menu="mobileMenu=true"
       @stop="stopGeneration"

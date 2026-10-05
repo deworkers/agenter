@@ -3,6 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import type { Tool, ToolRegistry } from "@agenter/tools";
 import type { McpServerConfig, McpServerStatus } from "./types.js";
+import { gitlabReviewSchema, isGitlabReviewTool, validateGitlabReviewCall } from "./gitlabReview.js";
 
 type McpTool = {
   name: unknown;
@@ -59,18 +60,21 @@ export class McpManager {
         const response = await client.listTools({}, { timeout: 10_000 });
         const discovered = response.tools as McpTool[];
         const seen = new Set<string>();
-        const adapted = discovered.map((tool) => {
+        const adapted = discovered.filter(tool => serverConfig.safetyProfile !== "gitlab-review" || (typeof tool.name === "string" && isGitlabReviewTool(tool.name))).map((tool) => {
           if (!isValidTool(tool) || seen.has(tool.name)) throw new Error("Invalid MCP tool catalog.");
           seen.add(tool.name);
           const name = `${serverId}__${tool.name}`;
           if (this.registry.get(name)) throw new Error("MCP tool name collision.");
           return {
             name,
-            description: tool.description ?? "",
-            inputSchema: tool.inputSchema,
+            description: serverConfig.safetyProfile === "gitlab-review" && tool.name === "update_merge_request"
+              ? "Update ONLY the description of an existing merge request. Title, branches, state and other settings cannot be changed. GitLab quick actions are prohibited."
+              : tool.description ?? "",
+            inputSchema: serverConfig.safetyProfile === "gitlab-review" ? gitlabReviewSchema(tool.name, tool.inputSchema) : tool.inputSchema,
             safety: serverConfig.allowedTools === undefined || serverConfig.allowedTools.includes(tool.name) ? "safe" as const : "disabled" as const,
             source: { kind: "mcp" as const, serverId },
             execute: async (args: unknown, signal?: AbortSignal) => {
+              if (serverConfig.safetyProfile === "gitlab-review") validateGitlabReviewCall(tool.name, args);
               const result = await client.callTool({ name: tool.name, arguments: args as Record<string, unknown> }, undefined, { signal, timeout: 120_000 });
               if (result.isError) throw new Error(`MCP tool "${name}" failed.`);
               return result;

@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import type { ResponseFormat } from "../api/types.js";
-import { answerFiles, previewDocument, saveTextFile, type AnswerFile } from "../composables/answerFiles.js";
+import { answerFileMediaType, answerFiles, previewDocument, saveTextFile, type AnswerFile } from "../composables/answerFiles.js";
 const props = defineProps<{ content: string; responseFormat?: ResponseFormat }>();
 const files = computed(() => answerFiles(props.content, props.responseFormat));
 const opened = ref<AnswerFile | null>(null);
@@ -12,6 +12,9 @@ watch(opened, async () => { await nextTick(); closeButton.value?.focus(); });
 const preview = computed(() => opened.value ? previewDocument(opened.value, opened.value.format === "markdown" ? DOMPurify.sanitize(marked.parse(opened.value.content, { async: false })) : undefined) : null);
 function open(file: AnswerFile): void {
   opened.value = file;
+}
+function download(file: AnswerFile): void {
+  saveTextFile(file.name, file.content, answerFileMediaType(file.format));
 }
 </script>
 
@@ -36,7 +39,7 @@ function open(file: AnswerFile): void {
       <div class="answer-file-actions">
         <button
           type="button"
-          @click="saveTextFile(file.name, file.content, file.format === 'html' ? 'text/html;charset=utf-8' : 'text/markdown;charset=utf-8')"
+          @click="download(file)"
         >
           Скачать
         </button>
@@ -74,7 +77,7 @@ function open(file: AnswerFile): void {
           <div><strong>{{ opened.name }}</strong><small>Предпросмотр документа</small></div>
           <button
             type="button"
-            @click="saveTextFile(opened.name,opened.content)"
+            @click="download(opened)"
           >
             Скачать
           </button>

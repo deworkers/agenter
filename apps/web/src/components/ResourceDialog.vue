@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 import { createModelDraft, createServerDraft, type ResourceDraft } from "../composables/resourceDrafts.js";
+import { useModalFocus } from "../composables/useModalFocus.js";
 const props = defineProps<{ kind: "model" | "mcp"; existingIds: string[] }>();
 const emit = defineEmits<{ close: []; create: [draft: ResourceDraft] }>();
 const idInput = ref<HTMLInputElement | null>(null);
 const fields = reactive({ id: "", label: "", baseUrl: "http://localhost:1234/v1", apiKey: "local", model: "", contextWindow: 8192, maxOutputTokens: 1024, transport: "sse" as "sse" | "stdio", url: "", command: "", argsText: "", envText: "" });
 const error = ref("");
+const dialogElement = ref<HTMLElement | null>(null);
+useModalFocus(dialogElement);
 onMounted(() => idInput.value?.focus());
 function submit(): void {
   try {
@@ -23,7 +26,9 @@ function submit(): void {
     @click.self="emit('close')"
   >
     <section
+      ref="dialogElement"
       class="resource-dialog"
+      tabindex="-1"
       role="dialog"
       aria-modal="true"
       aria-labelledby="resource-title"

@@ -34,8 +34,12 @@ export class ChatService {
     return this.storage.listChats();
   }
 
-  createChat(title = "New chat"): Chat {
+  createChat(title = "Новый чат"): Chat {
     return this.storage.createChat(title);
+  }
+
+  renameChat(id: string, title: string): Chat | undefined {
+    return this.storage.updateChatTitle(id, title);
   }
 
   getChatWithMessages(id: string): ChatWithMessages | undefined {

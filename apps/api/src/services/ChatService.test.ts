@@ -14,6 +14,7 @@ function fakeStorage(chats: Chat[] = [], messagesByChat: Record<string, StoredMe
     }),
     listChats: vi.fn(() => chats),
     getChat: vi.fn((id: string) => chats.find((c) => c.id === id)),
+    updateChatTitle: vi.fn(),
     deleteChat: vi.fn((id: string) => {
       const idx = chats.findIndex((c) => c.id === id);
       if (idx >= 0) chats.splice(idx, 1);
@@ -67,7 +68,7 @@ describe("ChatService", () => {
 
     const chat = service.createChat();
 
-    expect(storage.createChat).toHaveBeenCalledWith("New chat");
+    expect(storage.createChat).toHaveBeenCalledWith("Новый чат");
     expect(chat.id).toBe("new-id");
   });
 

@@ -30,6 +30,7 @@ function memoryStorage(): ChatStorage {
     createChat: vi.fn(),
     listChats: vi.fn(() => []),
     getChat: vi.fn(),
+    updateChatTitle: vi.fn(),
     deleteChat: vi.fn(),
     touchChat: vi.fn(),
     listMessages: vi.fn(() => [...messages]),
@@ -125,19 +126,21 @@ describe("messages route tool events", () => {
 
   it("streams the neutral tool lifecycle before the final answer", async () => {
     let turn = 0;
+    const advertised: Array<string[] | undefined> = [];
     const provider: LlmProvider = {
       id: "fake",
       model: "fake-model",
       supportsTools: () => true,
       supportsVision: () => false,
       getContextWindow: () => 8192,
-      async *chat() {
+      async *chat(request) {
+        advertised.push(request.tools?.map((tool) => tool.name));
         if (turn++ === 0) {
           yield { type: "tool.call", call: { id: "call-1", name: "lookup", arguments: { query: "x" } } };
           yield { type: "done" };
           return;
         }
-        yield { type: "text.delta", text: "Found it" };
+        yield { type: "text.delta", text: turn === 2 ? "Found it" : '{"status":"done"}' };
         yield { type: "done" };
       },
     };
@@ -156,7 +159,7 @@ describe("messages route tool events", () => {
       providers,
       storage,
       new ProviderRouter(routingConfig),
-      { toolRuntime: createAgentToolRuntime(tools) }
+      { toolRuntime: createAgentToolRuntime(tools), maxSelfCheckContinuations: 2 }
     );
     const skills = { getContent: vi.fn() } as unknown as SkillRegistry;
     const service = new ChatService(storage, runtime, skills, tools);
@@ -188,14 +191,20 @@ describe("messages route tool events", () => {
       expect(events.map(({ type }) => type)).toEqual([
         "run.started",
         "run.context",
+        "run.phase",
         "tool.started",
         "tool.completed",
         "run.context",
+        "run.phase",
         "text.delta",
+        "run.phase",
         "run.completed",
       ]);
-      expect(events[2]).toEqual({ type: "tool.started", tool: "lookup", arguments: { query: "x" } });
-      expect(events[3]).toEqual({ type: "tool.completed", tool: "lookup", result: { value: 42 } });
+      expect(events[3]).toEqual({ type: "tool.started", tool: "lookup", arguments: { query: "x" } });
+      expect(events[4]).toEqual({ type: "tool.completed", tool: "lookup", result: { value: 42 } });
+      expect(advertised).toEqual([["lookup"], ["lookup"], undefined]);
+      expect(body).toContain("Found it");
+      expect(body).not.toContain('\\"status\\":\\"done\\"');
       expect(body).not.toContain("tool_calls");
       expect(body).not.toContain("finish_reason");
     } finally {

@@ -38,6 +38,9 @@ chat turn. The message route accepts selected MCP server IDs, and
 tool execution HTTP endpoint. Registry execution rejects unknown and non-`safe`
 tools. MCP allowlists control which discovered tools are safe. Context estimates
 reserve output tokens and enforce the configured window before provider calls.
+The API enables a separate no-tools answer self-check with at most two
+continuations. Provisional text is reset before continuation; blocked or
+unverified answers carry an incomplete note. The check is advisory.
 Cancellation flows through provider fetch and MCP calls. Storage restores run
 metadata and tool activity through an additive assistant-message link migration.
 Chat commands are handled locally by the web client. `/compact` uses the chosen

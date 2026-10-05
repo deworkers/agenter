@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import type { TextAttachment } from "../api/types.js";
 import { useTextAttachments } from "../composables/useTextAttachments.js";
 import { textFileAccept } from "../composables/textFiles.js";
@@ -21,7 +21,7 @@ const attachments = defineModel<TextAttachment[]>("attachments", { required: tru
 const fileInput = ref<HTMLInputElement | null>(null);
 const textarea = ref<HTMLTextAreaElement | null>(null);
 defineExpose({ focus: () => textarea.value?.focus() });
-const { error, loading, addFiles, paste } = useTextAttachments(attachments, () => props.draftKey);
+const { error, loading, addFiles, paste, insertClipboard } = useTextAttachments(attachments, () => props.draftKey);
 const canSend = computed(() => !props.disabled && !loading.value && (!!draft.value.trim() || !!attachments.value.length));
 async function pickFiles(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement;
@@ -29,6 +29,22 @@ async function pickFiles(event: Event): Promise<void> {
 }
 function dropFiles(event: DragEvent): void {
   if (!props.streaming) void addFiles(Array.from(event.dataTransfer?.files ?? []));
+}
+
+function restoreClipboard(id: string): void {
+  const start = textarea.value?.selectionStart ?? draft.value.length;
+  const end = textarea.value?.selectionEnd ?? start;
+  try {
+    const inserted = insertClipboard(id, draft.value, start, end);
+    draft.value = inserted.value;
+    error.value = "";
+    void nextTick(() => {
+      textarea.value?.focus();
+      textarea.value?.setSelectionRange(inserted.cursor, inserted.cursor);
+    });
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : "Не удалось вставить текст";
+  }
 }
 
 function submit(): void {
@@ -60,6 +76,7 @@ function onKeydown(event: KeyboardEvent): void {
       removable
       :disabled="streaming || loading"
       @remove="(id) => attachments = attachments.filter(item => item.id !== id)"
+      @insert="restoreClipboard"
     />
     <p
       v-if="error"

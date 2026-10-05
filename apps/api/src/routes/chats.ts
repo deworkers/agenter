@@ -23,6 +23,20 @@ export function createChatsRouter(chatService: ChatService): Router {
     res.json(result);
   });
 
+  router.patch("/:id", (req, res) => {
+    const title = req.body?.title;
+    if (typeof title !== "string" || !title.trim() || Array.from(title.trim()).length > 120) {
+      res.status(400).json({ error: "Название должно содержать от 1 до 120 символов" });
+      return;
+    }
+    const chat = chatService.renameChat(req.params.id, title.trim());
+    if (!chat) {
+      res.status(404).json({ error: "Chat not found" });
+      return;
+    }
+    res.json(chat);
+  });
+
   router.post("/:id/compact", async (req, res) => {
     if (!chatService.getChatWithMessages(req.params.id)) { res.status(404).json({ error: "Чат не найден" }); return; }
     const { providerId, mode, skillId } = req.body ?? {};

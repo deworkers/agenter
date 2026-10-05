@@ -44,6 +44,9 @@ function decodeEvent(value: unknown): AgentEvent {
     case "run.started":
       if (typeof value.provider === "string" && typeof value.model === "string") return value as unknown as AgentEvent;
       break;
+    case "run.phase":
+      if (value.stage === "waiting" || value.stage === "checking") return value as unknown as AgentEvent;
+      break;
     case "run.context":
       if (isRecord(value.context) && typeof value.context.systemPrompt === "string" && Array.isArray(value.context.tools) &&
         value.context.tools.every((tool: unknown) => isRecord(tool) && typeof tool.name === "string" && typeof tool.description === "string" && isRecord(tool.inputSchema)) &&
@@ -52,17 +55,22 @@ function decodeEvent(value: unknown): AgentEvent {
     case "text.delta":
       if (typeof value.text === "string") return value as unknown as AgentEvent;
       break;
+    case "text.reset":
+      return value as unknown as AgentEvent;
     case "tool.started":
       if (typeof value.tool === "string" && "arguments" in value) return value as unknown as AgentEvent;
       break;
     case "tool.completed":
       if (typeof value.tool === "string" && "result" in value) return value as unknown as AgentEvent;
       break;
+    case "tool.failed":
+      if (typeof value.tool === "string" && value.code === "tool_unavailable") return value as unknown as AgentEvent;
+      break;
     case "run.completed":
       if (value.usage === undefined || (isRecord(value.usage) && typeof value.usage.promptTokens === "number" && typeof value.usage.completionTokens === "number")) return value as unknown as AgentEvent;
       break;
     case "run.error":
-      if (typeof value.message === "string") return value as unknown as AgentEvent;
+      if (typeof value.message === "string" && (value.code === undefined || ["cancelled", "timeout", "provider_unavailable", "invalid_response", "context_over_limit", "tool_not_allowed", "tool_failed", "tool_unavailable", "tool_invalid_result", "tool_result_too_large", "incomplete_response", "persistence_failed"].includes(value.code as string))) return value as unknown as AgentEvent;
       break;
   }
   throw new Error("Invalid stream event");
@@ -121,6 +129,14 @@ export async function createChat(title?: string): Promise<Chat> {
 
 export async function getChat(id: string): Promise<{ chat: Chat; messages: StoredMessage[] }> {
   return json(await fetch(`/api/chats/${id}`));
+}
+
+export async function renameChat(id: string, title: string): Promise<Chat> {
+  return json(await fetch(`/api/chats/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  }));
 }
 
 export async function compactChat(id: string, options: SendMessageOptions = {}, signal?: AbortSignal): Promise<CompactResult> {

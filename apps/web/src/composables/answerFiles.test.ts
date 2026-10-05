@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { answerFiles, previewDocument, saveTextFile } from "./answerFiles.js";
+import { answerFileMediaType, answerFiles, previewDocument, saveTextFile } from "./answerFiles.js";
 
 it("extracts completed named html/markdown fences, excludes other code and unfinished fences", () => {
   const content = 'Answer\n```html filename="index.html"\n<!doctype html>\n<h1>Hi</h1>\n```\n\n```md filename=notes.md\n# Notes\n```\n```js\nalert(1)\n```\n```html\nunfinished';
@@ -58,4 +58,9 @@ it("downloads original UTF-8 content with the filename and revokes its temporary
     expect(blob.type).toBe("text/markdown;charset=utf-8");
     vi.advanceTimersByTime(60_000); expect(revoke).toHaveBeenCalledWith("blob:test-download");
   } finally { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); }
+});
+
+it("selects the correct content type for a downloaded HTML or Markdown file", () => {
+  expect(answerFileMediaType("html")).toBe("text/html;charset=utf-8");
+  expect(answerFileMediaType("markdown")).toBe("text/markdown;charset=utf-8");
 });

@@ -4,6 +4,7 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import type { NewSkillInput } from "../api/types.js";
 import { skillIdFromName } from "../composables/skillId.js";
+import { useModalFocus } from "../composables/useModalFocus.js";
 
 const props = defineProps<{ saving: boolean; error: string | null; initial?: NewSkillInput }>();
 const emit = defineEmits<{ close: []; create: [input: NewSkillInput] }>();
@@ -15,6 +16,8 @@ const editedId = ref(!!props.initial);
 const enabled = ref(props.initial?.enabled !== false);
 const mcpServersText = ref((props.initial?.mcpServers ?? []).join(", "));
 const preview = ref(false);
+const dialogElement = ref<HTMLElement | null>(null);
+useModalFocus(dialogElement);
 function previewHtml(): string { return DOMPurify.sanitize(marked.parse(instructions.value, { async: false })); }
 
 watch(name, (value) => {
@@ -40,7 +43,9 @@ function submit(): void {
     @keydown.esc="emit('close')"
   >
     <section
+      ref="dialogElement"
       class="skill-dialog"
+      tabindex="-1"
       role="dialog"
       aria-modal="true"
       aria-labelledby="skill-dialog-title"

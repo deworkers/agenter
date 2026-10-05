@@ -3,7 +3,7 @@ import { textBytes } from "@agenter/agent-core";
 import type { TextAttachment } from "../api/types.js";
 import { saveTextFile } from "../composables/answerFiles.js";
 defineProps<{ items: TextAttachment[]; removable?: boolean; disabled?: boolean }>();
-const emit = defineEmits<{ remove: [id: string] }>();
+const emit = defineEmits<{ remove: [id: string]; insert: [id: string] }>();
 function size(content: string): string {
   const bytes = textBytes(content); return bytes < 1024 ? `${bytes} Б` : `${(bytes / 1024).toFixed(1)} КБ`;
 }
@@ -37,10 +37,23 @@ function size(content: string): string {
           ×
         </button>
       </div>
+      <small
+        v-if="removable && item.source === 'clipboard'"
+        class="attachment-note"
+      >Длинный текст добавлен как файл.</small>
       <details>
         <summary>{{ size(item.content) }} · Посмотреть текст</summary>
         <pre>{{ item.content || '(Пустой файл)' }}</pre>
       </details>
+      <button
+        v-if="removable && item.source === 'clipboard'"
+        type="button"
+        class="attachment-restore"
+        :disabled="disabled"
+        @click="emit('insert', item.id)"
+      >
+        Вставить в поле
+      </button>
       <button
         v-if="!removable"
         type="button"

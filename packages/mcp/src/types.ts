@@ -1,4 +1,5 @@
 export interface StdioMcpServerConfig {
+  safetyProfile?: "gitlab-review";
   allowedTools?: string[];
   transport?: "stdio";
   command: string;
@@ -7,6 +8,7 @@ export interface StdioMcpServerConfig {
 }
 
 export interface SseMcpServerConfig {
+  safetyProfile?: "gitlab-review";
   allowedTools?: string[];
   transport: "sse";
   url: string;

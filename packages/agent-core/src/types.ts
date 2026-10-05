@@ -42,9 +42,11 @@ export interface ToolResultMessage { role: "tool"; toolCallId: string; name: str
 export type LlmMessage = ChatMessage | AssistantToolCallMessage | ToolResultMessage;
 export interface AgentToolRuntime {
   listTools(): ToolDefinition[];
+  /** An execution error may opt into one safe model continuation only with code="unavailable" and recoverable=true. */
   execute(name: string, args: unknown, signal?: AbortSignal): Promise<unknown>;
 }
 export type ToolCallStatus = "success" | "error" | "skipped";
+export type RunErrorCode = "cancelled" | "timeout" | "provider_unavailable" | "invalid_response" | "context_over_limit" | "tool_not_allowed" | "tool_failed" | "tool_unavailable" | "tool_invalid_result" | "tool_result_too_large" | "incomplete_response" | "persistence_failed";
 export interface NewToolCallInput { toolName: string; arguments: string; result: string | null; status: ToolCallStatus }
 export interface ToolCallRecord extends NewToolCallInput { id: string; runId: string; createdAt: string }
 
@@ -79,12 +81,15 @@ export interface LlmProvider {
 
 export type AgentEvent =
   | { type: "run.started"; provider: string; model: string }
+  | { type: "run.phase"; stage: "waiting" | "checking" }
   | { type: "run.context"; context: RequestContext }
   | { type: "text.delta"; text: string }
+  | { type: "text.reset" }
   | { type: "tool.started"; tool: string; arguments: unknown }
   | { type: "tool.completed"; tool: string; result: unknown }
+  | { type: "tool.failed"; tool: string; code: "tool_unavailable" }
   | { type: "run.completed"; usage?: TokenUsage }
-  | { type: "run.error"; message: string };
+  | { type: "run.error"; message: string; code?: RunErrorCode };
 
 export interface Chat {
   id: string;
@@ -108,6 +113,7 @@ export interface StoredMessage {
   durationMs?: number;
   usage?: TokenUsage;
   error?: string;
+  errorCode?: RunErrorCode;
 }
 
 export interface NewMessageInput {
@@ -143,12 +149,14 @@ export interface NewRunInput {
   tokensIn?: number;
   tokensOut?: number;
   durationMs: number;
+  errorCode?: RunErrorCode;
 }
 
 export interface ChatStorage {
   createChat(title: string): Chat;
   listChats(): Chat[];
   getChat(id: string): Chat | undefined;
+  updateChatTitle(id: string, title: string): Chat | undefined;
   deleteChat(id: string): void;
   touchChat(id: string): void;
 

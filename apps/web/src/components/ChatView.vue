@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import type { Chat, ContextBudget, DisplayMessage, ProviderSummary, TextAttachment, ResponseFormat } from "../api/types.js";
@@ -7,16 +7,19 @@ import { providerPickerOptions } from "../composables/pickerOptions.js";
 import MessageInput from "./MessageInput.vue";
 import OptionPicker from "./OptionPicker.vue";
 import { parseChatCommand } from "../composables/chatCommands.js";
-import { contextProgress } from "../composables/contextMeter.js";
+import { contextProgress, contextSummary } from "../composables/contextMeter.js";
 import TextAttachments from "./TextAttachments.vue";
 import AnswerFiles from "./AnswerFiles.vue";
 import { saveTextFile } from "../composables/answerFiles.js";
 import { chatStarters, useChatHome } from "../composables/useChatHome.js";
+import { runErrorPresentation } from "../composables/runErrorPresentation.js";
 
 const props = defineProps<{
   messages: DisplayMessage[];
   chats: Chat[];
   isStreaming: boolean;
+  generationActive: boolean;
+  activeGenerationChatTitle: string;
   activeChat: Chat | null;
   providers: ProviderSummary[];
   defaultProviderId: string;
@@ -34,6 +37,9 @@ const attachments = defineModel<TextAttachment[]>("attachments", { required: tru
 const responseFormat = defineModel<ResponseFormat>("responseFormat", { required: true });
 const historyLimit = defineModel<number | undefined>("historyLimit", { default: undefined });
 const modelPicker = ref<InstanceType<typeof OptionPicker> | null>(null);
+const clock = ref(Date.now());
+const clockTimer = window.setInterval(() => { clock.value = Date.now(); }, 250);
+onUnmounted(() => window.clearInterval(clockTimer));
 const messageList = ref<HTMLElement | null>(null);
 const messageInput = ref<InstanceType<typeof MessageInput> | null>(null);
 const { recentChats, showAll, chooseStarter } = useChatHome(draft, () => props.chats);
@@ -49,10 +55,39 @@ function chatDate(value: string): string {
 const providerOptions = computed(() => providerPickerOptions(props.providers, props.defaultProviderId));
 const occupancy = computed(() => props.budget ? contextProgress(props.budget) : { value: 0, max: 1 });
 const isCommand = computed(() => parseChatCommand(draft.value) !== null);
+const currentAssistant = computed(() => {
+  const latest = props.messages.at(-1);
+  return latest?.role === "assistant" ? latest : undefined;
+});
+const routeNotice = computed(() => {
+  if (!props.isStreaming || providerId.value !== "auto") return "";
+  const message = currentAssistant.value;
+  if (!message?.provider) return "Модель выберется автоматически по задаче";
+  const provider = props.providers.find((item) => item.id === message.provider);
+  return `Автоматически выбрана: ${provider?.label || message.provider} · ${message.model || "модель"}`;
+});
+function providerLabel(id: string): string {
+  const provider = props.providers.find((item) => item.id === id);
+  return provider?.label || id;
+}
+function progressLabel(message: DisplayMessage): string {
+  if (message.runPhase === "checking") return "Проверяю ответ…";
+  if (message.runPhase === "receiving") return "Получаю ответ…";
+  if (message.runPhase === "tool") return `Выполняю инструмент ${message.currentTool || "…"}`;
+  if (message.runPhase === "error") return message.error?.includes("остановлена") ? "Генерация остановлена" : "Ошибка генерации";
+  return "Ожидаю ответ модели…";
+}
+function terminalStatus(message: DisplayMessage): string {
+  if (message.runPhase === "completed") return "Завершено";
+  if (message.runPhase === "error") return message.error?.includes("остановлена") ? "Остановлено" : "Ошибка";
+  return "";
+}
 defineExpose({ openModelPicker: () => modelPicker.value?.open() });
 
 const emit = defineEmits<{
   send: [content: string, attachments: TextAttachment[]];
+  retry: [content: string, attachments: TextAttachment[]];
+  returnToGeneration: [];
   selectChat: [id: string];
   retryProviders: [];
   stop: [];
@@ -99,6 +134,25 @@ function duration(ms: number): string {
 
 <template>
   <section class="chat-view">
+    <div
+      v-if="generationActive && !isStreaming"
+      class="generation-elsewhere"
+      role="status"
+    >
+      <span>Генерация продолжается в «{{ activeGenerationChatTitle }}».</span>
+      <button
+        type="button"
+        @click="emit('returnToGeneration')"
+      >
+        Вернуться
+      </button>
+      <button
+        type="button"
+        @click="emit('stop')"
+      >
+        Остановить
+      </button>
+    </div>
     <header class="chat-header">
       <button
         class="icon-button mobile-only"
@@ -149,7 +203,7 @@ function duration(ms: number): string {
       >
         <div class="conversation">
           <article
-            v-for="message in messages"
+            v-for="(message, messageIndex) in messages"
             :key="message.id"
             class="message-row"
             :class="message.role"
@@ -229,11 +283,22 @@ function duration(ms: number): string {
                 />
                 <!-- eslint-enable vue/no-v-html -->
                 <div
-                  v-if="isStreaming && message === messages.at(-1) && !message.content && !message.tools?.length"
-                  class="thinking"
+                  v-if="isStreaming && message === messages.at(-1) && message.runPhase"
+                  class="run-progress"
+                  role="status"
+                  aria-live="polite"
                 >
-                  <span class="thinking-dot" /> Думаю…
+                  <span class="thinking-dot" />
+                  <span>{{ progressLabel(message) }}</span>
+                  <time v-if="message.runStartedAt">{{ duration(clock - message.runStartedAt) }}</time>
                 </div>
+                <p
+                  v-if="isStreaming && message === messages.at(-1) && message.provisional"
+                  class="answer-provisional"
+                  role="status"
+                >
+                  Ответ предварительный · продолжаю проверку
+                </p>
                 <div
                   v-if="message.content"
                   class="message-actions"
@@ -275,9 +340,9 @@ function duration(ms: number): string {
                         Аргументы
                       </div>
                       <pre>{{ jsonText(tool.arguments) }}</pre>
-                      <template v-if="tool.status === 'completed'">
+                      <template v-if="tool.result !== undefined">
                         <div class="tool-data-label">
-                          Результат
+                          {{ tool.status === 'completed' ? 'Результат' : 'Безопасная причина ошибки' }}
                         </div>
                         <pre>{{ jsonText(tool.result) }}</pre>
                       </template>
@@ -289,14 +354,35 @@ function duration(ms: number): string {
                   class="message-error"
                   role="alert"
                 >
-                  {{ message.error }}
+                  <strong>{{ runErrorPresentation(message).reason }}</strong>
+                  <p v-if="runErrorPresentation(message).nextStep">
+                    {{ runErrorPresentation(message).nextStep }}
+                  </p>
+                  <button
+                    v-if="message.role === 'assistant' && messages[messageIndex - 1]?.role === 'user'"
+                    type="button"
+                    :disabled="isStreaming"
+                    @click="emit('retry', messages[messageIndex - 1]!.content, messages[messageIndex - 1]!.attachments ?? [])"
+                  >
+                    Повторить запрос
+                  </button>
                 </div>
                 <div
                   v-if="message.provider || message.model || message.durationMs !== undefined"
                   class="message-meta"
                 >
-                  <span v-if="message.model">{{ message.model }}</span>
-                  <span v-if="message.provider && message.provider !== message.model">{{ message.provider }}</span>
+                  <span v-if="message.provider">{{ providerLabel(message.provider) }}</span>
+                  <span
+                    v-if="terminalStatus(message)"
+                    class="run-terminal-status"
+                  >{{ terminalStatus(message) }}</span>
+                  <details
+                    v-if="message.model"
+                    class="message-model-details"
+                  >
+                    <summary>Модель</summary>
+                    <code>{{ message.model }}</code>
+                  </details>
                   <span v-if="message.durationMs !== undefined">{{ duration(message.durationMs) }}</span>
                   <span v-if="message.usage">{{ tokens(message.usage.promptTokens + message.usage.completionTokens) }} токенов за запуск</span>
                 </div>
@@ -314,7 +400,7 @@ function duration(ms: number): string {
             v-model:attachments="attachments"
             :draft-key="activeChat?.id ?? 'new'"
             :streaming="isStreaming"
-            :disabled="isStreaming || (!isCommand && (providersLoading || !!providersError || !providerId || !!budget?.overLimit))"
+            :disabled="generationActive || isStreaming || (!isCommand && (providersLoading || !!providersError || !providerId || !!budget?.overLimit))"
             @send="(content, files) => emit('send', content, files)"
             @stop="emit('stop')"
           />
@@ -339,6 +425,11 @@ function duration(ms: number): string {
                 </select>
               </label>
             </div>
+            <small
+              v-if="routeNotice"
+              class="run-route-status"
+              role="status"
+            >{{ routeNotice }}</small>
             <span class="composer-hint">/ — команды · Enter — отправить</span>
           </div>
         </div>
@@ -348,7 +439,7 @@ function duration(ms: number): string {
           :class="{over:budget.overLimit}"
         >
           <summary :aria-busy="contextUpdating">
-            Контекст ≈{{ tokens(budget.usedTokens) }} / {{ tokens(budget.contextWindow) }} · свободно ≈{{ tokens(budget.availableTokens) }}<span
+            {{ contextSummary(budget) }}<span
               class="context-refresh-status"
               :title="contextUpdating ? 'Пересчёт…' : contextError ? 'Оценка устарела' : ''"
               :aria-label="contextUpdating ? 'Пересчёт…' : contextError ? 'Оценка устарела' : undefined"

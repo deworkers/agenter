@@ -1,6 +1,6 @@
 // apps/web/src/api/client.test.ts
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSkill, listMcp, listProviders, listSkills, sendMessage } from "./client.js";
+import { createSkill, listMcp, listProviders, listSkills, renameChat, sendMessage } from "./client.js";
 
 function sseResponse(events: object[]): Response {
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
@@ -58,6 +58,17 @@ describe("catalogs", () => {
   });
 });
 
+it("renames a chat with the title update endpoint", async () => {
+  const chat = { id: "c1", title: "Новое название", createdAt: "2026-10-02T00:00:00.000Z", updatedAt: "2026-10-02T00:01:00.000Z" };
+  const fetch = vi.fn().mockResolvedValue(Response.json(chat));
+  vi.stubGlobal("fetch", fetch);
+  expect(await renameChat("c1", chat.title)).toEqual(chat);
+  expect(fetch).toHaveBeenCalledWith("/api/chats/c1", expect.objectContaining({
+    method: "PATCH",
+    body: JSON.stringify({ title: chat.title }),
+  }));
+});
+
 describe("sendMessage", () => {
   it("decodes the request context event", async () => {
     const context = { systemPrompt: "Base", skill: { id: "review", content: "Steps" }, tools: [] };
@@ -65,6 +76,18 @@ describe("sendMessage", () => {
     const events = [];
     for await (const event of sendMessage("chat-1", "hello")) events.push(event);
     expect(events).toEqual([{ type: "run.context", context }, { type: "run.completed" }]);
+  });
+  it("decodes safe tool-failure and run-error categories", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      { type: "tool.failed", tool: "lookup", code: "tool_unavailable" },
+      { type: "run.error", code: "timeout", message: "Таймаут запроса к модели." },
+    ])));
+    const events = [];
+    for await (const event of sendMessage("chat-1", "hello")) events.push(event);
+    expect(events).toEqual([
+      { type: "tool.failed", tool: "lookup", code: "tool_unavailable" },
+      { type: "run.error", code: "timeout", message: "Таймаут запроса к модели." },
+    ]);
   });
   it("rejects a disconnected stream without a terminal event", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([{ type: "text.delta", text: "partial" }])));
@@ -77,6 +100,8 @@ describe("sendMessage", () => {
       vi.fn().mockResolvedValue(
         sseResponse([
           { type: "run.started", provider: "p", model: "m" },
+          { type: "run.phase", stage: "waiting" },
+          { type: "run.phase", stage: "checking" },
           { type: "text.delta", text: "hi" },
           { type: "run.completed" },
         ])
@@ -90,6 +115,8 @@ describe("sendMessage", () => {
 
     expect(events).toEqual([
       { type: "run.started", provider: "p", model: "m" },
+      { type: "run.phase", stage: "waiting" },
+      { type: "run.phase", stage: "checking" },
       { type: "text.delta", text: "hi" },
       { type: "run.completed" },
     ]);

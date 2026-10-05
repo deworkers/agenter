@@ -17,13 +17,16 @@
   provider calls, HTTP concerns, or file loading.
 - `ProviderRegistry` stores `LlmProvider` instances and resolves ids/defaults;
   it must not know configuration files or concrete adapter classes.
-- Preserve the event protocol: `run.started`, `text.delta`,
+- Preserve the event protocol: `run.started`, `text.delta`, `text.reset`,
   `run.completed`, and `run.error`. Add tool events only with the approved
   tool-loop plan.
 - The runtime has a bounded tool loop, context budget estimates, preview and
   cancellation. Keep all concrete configuration, tokenizer/provider and MCP
   dependencies outside this package. Estimated occupancy and cumulative usage
   are different quantities.
+- Optional answer self-check uses the selected provider without tools. Bound
+  continuations, keep check output internal, and clear provisional streamed
+  text before continuing; the API enables two continuations.
 - Compaction uses provider/storage interfaces, no tools, and bounded requests.
   Save a summary checkpoint only after complete, uncancelled generation. Apply
   it to subsequent context while keeping original stored messages unchanged.

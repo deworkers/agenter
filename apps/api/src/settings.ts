@@ -72,7 +72,8 @@ export function validateSettings(value: unknown): Settings {
   }
   for (const [id, server] of Object.entries(value.mcpServers)) {
     if (!identifier.test(id) || !object(server)) fail("Некорректный ID MCP-сервера");
-    fields(server, server.transport === "sse" ? ["transport", "url", "enabled", "allowedTools"] : ["transport", "command", "args", "env", "enabled", "allowedTools"]);
+    fields(server, server.transport === "sse" ? ["transport", "url", "enabled", "allowedTools", "safetyProfile"] : ["transport", "command", "args", "env", "enabled", "allowedTools", "safetyProfile"]);
+    if (server.safetyProfile !== undefined && server.safetyProfile !== "gitlab-review") fail("Неизвестный профиль безопасности MCP");
     if (server.enabled !== undefined && typeof server.enabled !== "boolean") fail("Некорректный переключатель MCP");
     if (server.allowedTools !== undefined && (!Array.isArray(server.allowedTools) || !server.allowedTools.every((item) => typeof item === "string" && item.length > 0 && item.length <= 200))) fail("allowedTools должен быть списком имён инструментов");
     if (server.transport === "sse") {
