@@ -8,6 +8,13 @@ mounts Express routes, and exposes SSE responses.
 
 ## Rules
 
+- `application.ts` mounts authentication before application routes. Chat storage
+  is selected by the authenticated server-side user, never by a request field.
+  Models, settings, skills and MCP managers remain shared. Preserve snapshot
+  leases across users when applying settings. The first account retains DB_PATH;
+  later accounts use separate databases. Auth credentials/sessions live in the
+  adjacent auth database; never expose password hashes, salts or session tokens.
+
 - Keep concrete provider imports in `providerFactory.ts` and bootstrap code.
   `packages/agent-core` must not gain API, filesystem, SQLite, or provider
   implementation dependencies.

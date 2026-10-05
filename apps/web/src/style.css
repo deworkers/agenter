@@ -15,6 +15,23 @@
 }
 
 * { box-sizing: border-box; }
+.auth-screen { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
+.auth-card { width: 100%; max-width: 420px; padding: 32px; border: 1px solid var(--border); border-radius: 16px; background: white; box-shadow: 0 16px 60px #17272e08; }
+.auth-brand { display: flex; gap: 10px; align-items: center; font-size: 20px; font-weight: 650; }
+.auth-card h1 { font-size: 24px; margin: 28px 0 12px; }
+.auth-card p { color: var(--muted); font-size: 14px; line-height: 1.6; }
+.auth-card form { display: flex; flex-direction: column; gap: 10px; margin-top: 24px; }
+.auth-card label { font-size: 14px; font-weight: 600; }
+.auth-card input { min-width: 0; width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.auth-card small { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.auth-card .auth-error { color: #a12c2c; margin: 0 0 8px; }
+.auth-card .primary-button { min-height: 44px; }
+.auth-switch, .logout-button { border: 0; background: transparent; color: var(--muted); padding: 10px 0; font-size: 13px; }
+.auth-switch:hover, .logout-button:hover { color: var(--text); }
+.logout-button { margin-left: auto; flex: none; }
+.sidebar-footer > div { min-width: 0; }
+.sidebar-footer strong { overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 480px) { .auth-card { padding: 24px 20px; } }
 body { margin: 0; min-width: 320px; }
 button, select, textarea, input { font: inherit; }
 button { cursor: pointer; }
@@ -29,8 +46,6 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .new-chat-button:disabled { opacity: .55; cursor: default; }
 .chat-list-item:hover { background: var(--hover); }
 .sidebar-section-title { padding: 22px 10px 5px; color: #758087; font: 10px/1.5 Consolas, monospace; letter-spacing: .07em; text-transform: uppercase; }
-.workspace-nav { display: flex; align-items: center; gap: 12px; min-height: 40px; border: 0; border-radius: 8px; padding: 10px 12px; background: #e5f0e7; color: #284339; text-align: left; font-size: 13px; }
-.workspace-nav:hover:not(:disabled) { background: #d8e9dc; }
 .chat-search { flex: none; padding: 14px 4px 4px; }
 .chat-search > label { display: block; padding: 0 6px 6px; color: #526168; font-size: 12px; font-weight: 600; }
 .chat-search-field { display: flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 9px; border: 1px solid var(--border); border-radius: 8px; background: #f8fafb; color: #68757b; }

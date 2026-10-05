@@ -25,6 +25,13 @@ execute tools; incomplete answers are marked in saved text. Provisional text is
 reset before continuation so the visible final answer matches storage. This is
 documented in the Phase 7 plan and does not complete Phase 9.
 
+User-authorized follow-up (2026-10-05): simple login/password self-registration
+and persistent cookie sessions with separate chat databases per user; settings,
+models, Skills and MCP remain shared. The first account retains the existing
+history. See `plans/2026-10-05-auth-environments.md` and the authentication
+section in the configuration guide. This does not complete Phase 9 or add roles
+and process/filesystem isolation.
+
 User-authorized follow-up (2026-09-29): remove legacy configuration files/loaders,
 initialize the single working JSON from a tracked JSON template, and replace
 demonstration skills with web research, Context7 docs, complete code delivery,

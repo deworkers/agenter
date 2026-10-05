@@ -2,6 +2,38 @@
 import type { AgentEvent, Chat, StoredMessage, ProvidersResponse, SkillsResponse, McpResponse, NewSkillInput, SkillSummary, SendMessageOptions } from "./types.js";
 import type { Settings, RequestContext, CompactResult } from "./types.js";
 
+export interface AuthUser { id: string; login: string }
+export const SESSION_EXPIRED_EVENT = "agenter:session-expired";
+async function request(url: string, options?: RequestInit): Promise<Response> {
+  const response = await fetch(url, { ...options, credentials: "same-origin" });
+  if (response.status === 401 && !url.startsWith("/api/auth/")) {
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+    throw new Error("Войдите в своё окружение");
+  }
+  return response;
+}
+
+function decodeSession(value: unknown): AuthUser | null {
+  if (!isRecord(value)) throw new Error("Некорректный ответ авторизации");
+  if (value.user === null) return null;
+  if (!isRecord(value.user) || typeof value.user.id !== "string" || typeof value.user.login !== "string") throw new Error("Некорректный ответ авторизации");
+  return { id: value.user.id, login: value.user.login };
+}
+export async function getSession(): Promise<AuthUser | null> {
+  return decodeSession(await json(await request("/api/auth/session")));
+}
+export async function authenticate(action: "login" | "register", login: string, password: string): Promise<AuthUser> {
+  const user = decodeSession(await json(await request(`/api/auth/${action}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ login, password }),
+  })));
+  if (!user) throw new Error("Не удалось выполнить вход");
+  return user;
+}
+export async function logout(): Promise<void> {
+  const response = await request("/api/auth/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  if (!response.ok) await json(response);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -85,19 +117,19 @@ async function json<T>(response: Response): Promise<T> {
 }
 
 export async function listChats(): Promise<Chat[]> {
-  return json(await fetch("/api/chats"));
+  return json(await request("/api/chats"));
 }
 
 export async function listProviders(): Promise<ProvidersResponse> {
-  return decodeProviders(await json<unknown>(await fetch("/api/providers")));
+  return decodeProviders(await json<unknown>(await request("/api/providers")));
 }
 
 export async function listSkills(): Promise<SkillsResponse> {
-  return decodeSkills(await json<unknown>(await fetch("/api/skills")));
+  return decodeSkills(await json<unknown>(await request("/api/skills")));
 }
 
 export async function createSkill(input: NewSkillInput): Promise<SkillSummary> {
-  const response = await fetch("/api/skills", {
+  const response = await request("/api/skills", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
@@ -114,12 +146,12 @@ export async function createSkill(input: NewSkillInput): Promise<SkillSummary> {
 }
 
 export async function listMcp(): Promise<McpResponse> {
-  return decodeMcp(await json<unknown>(await fetch("/api/mcp")));
+  return decodeMcp(await json<unknown>(await request("/api/mcp")));
 }
 
 export async function createChat(title?: string): Promise<Chat> {
   return json(
-    await fetch("/api/chats", {
+    await request("/api/chats", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title }),
@@ -128,11 +160,11 @@ export async function createChat(title?: string): Promise<Chat> {
 }
 
 export async function getChat(id: string): Promise<{ chat: Chat; messages: StoredMessage[] }> {
-  return json(await fetch(`/api/chats/${id}`));
+  return json(await request(`/api/chats/${id}`));
 }
 
 export async function renameChat(id: string, title: string): Promise<Chat> {
-  return json(await fetch(`/api/chats/${id}`, {
+  return json(await request(`/api/chats/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
@@ -140,20 +172,20 @@ export async function renameChat(id: string, title: string): Promise<Chat> {
 }
 
 export async function compactChat(id: string, options: SendMessageOptions = {}, signal?: AbortSignal): Promise<CompactResult> {
-  const value: unknown = await json(await fetch(`/api/chats/${id}/compact`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(options), ...(signal ? { signal } : {}) }));
+  const value: unknown = await json(await request(`/api/chats/${id}/compact`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(options), ...(signal ? { signal } : {}) }));
   if (!isRecord(value) || typeof value.summary !== "string" || typeof value.provider !== "string" || typeof value.model !== "string" || !Number.isInteger(value.compactedMessages) || typeof value.beforeTokens !== "number" || typeof value.afterTokens !== "number") throw new Error("Некорректный ответ сжатия контекста");
   return value as unknown as CompactResult;
 }
 
 export async function deleteChat(id: string): Promise<void> {
-  const response = await fetch(`/api/chats/${id}`, { method: "DELETE" });
+  const response = await request(`/api/chats/${id}`, { method: "DELETE" });
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status} ${response.statusText}`);
   }
 }
 
 export async function* sendMessage(chatId: string, content: string, options: SendMessageOptions = {}, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
-  const response = await fetch(`/api/chats/${chatId}/messages`, {
+  const response = await request(`/api/chats/${chatId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ content, ...options }),
@@ -199,22 +231,22 @@ export async function* sendMessage(chatId: string, content: string, options: Sen
 }
 
 export async function getSettings(): Promise<{ settings: Settings; environment: Record<string, boolean> }> {
-  return json(await fetch("/api/settings"));
+  return json(await request("/api/settings"));
 }
 export async function saveSettings(settings: Settings): Promise<{ settings: Settings }> {
-  return json(await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) }));
+  return json(await request("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) }));
 }
 export async function testConnection(settings: Settings, kind: "model" | "mcp", id: string): Promise<{ ok: boolean; tools?: Array<{ name: string; description: string }> }> {
-  return json(await fetch("/api/settings/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ settings, kind, id }) }));
+  return json(await request("/api/settings/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ settings, kind, id }) }));
 }
-export async function getSkill(id: string): Promise<NewSkillInput> { return json(await fetch(`/api/skills/${encodeURIComponent(id)}`)); }
+export async function getSkill(id: string): Promise<NewSkillInput> { return json(await request(`/api/skills/${encodeURIComponent(id)}`)); }
 export async function updateSkill(input: NewSkillInput): Promise<SkillSummary> {
-  return json(await fetch(`/api/skills/${encodeURIComponent(input.id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }));
+  return json(await request(`/api/skills/${encodeURIComponent(input.id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }));
 }
 export async function removeSkill(id: string): Promise<void> {
-  const response = await fetch(`/api/skills/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const response = await request(`/api/skills/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!response.ok) await json(response);
 }
 export async function previewContext(chatId: string, content: string, options: SendMessageOptions, signal?: AbortSignal): Promise<{ providerId: string; model: string; context: RequestContext }> {
-  return json(await fetch("/api/context", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chatId, content, ...options }), signal }));
+  return json(await request("/api/context", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chatId, content, ...options }), signal }));
 }
