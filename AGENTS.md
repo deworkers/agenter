@@ -56,6 +56,17 @@ manual MCP selection and server allowlists remain independent. Keep delivery
 instructions compatible with the selected response format and actual tools.
 Keep `packages/agent-core` independent of concrete tools/providers.
 
+User-approved 2026-10-05 authentication scope: registration/login/logout with
+server-side SQLite sessions and HttpOnly/SameSite cookies. `apps/api/application.ts`
+wires shared settings, skills, providers and MCP, but chooses a separate chat
+storage from the authenticated user. The first account owns the existing DB_PATH;
+other accounts use `<DB_PATH>.environments/<user-id>.db`. Users and sessions live
+in `<DB_PATH>.auth.db`. All application API routes require a session. Preserve
+the legacy-owner binding and database files; client user IDs never choose storage.
+All signed-in users may edit shared resources; no admin roles or OS/MCP isolation
+are implied. See `docs/superpowers/plans/2026-10-05-auth-environments.md` and
+`docs/configuration.ru.md`. Auth state/transport stays outside `agent-core`.
+
 ## Rules
 
 - Use Node.js >=24; the project uses built-in `node:sqlite`.

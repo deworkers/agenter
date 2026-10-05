@@ -7,6 +7,14 @@ SSE parsing belong in `src/api/` and composables.
 
 ## Rules
 
+- `AuthApp.vue` restores the session before mounting the chat app; changing
+  users remounts `App.vue`. Keep authentication requests in `api/client.ts` and
+  state in `useAuth`; handle 401 for JSON and SSE. Browser chat preferences must
+  include the authenticated user ID. Logout/unmount aborts the active client run.
+- Keep the Vite `/api` proxy as an object with `changeOrigin: false`: the API
+  validates the browser Origin against the original Host, including the port.
+  Cover proxy behavior with a real HTTP regression test when changing it.
+
 - Use Vue 3 Composition API and `<script setup>` for components.
 - Keep HTTP and streaming transport logic in `src/api/client.ts` and stateful
   behavior in composables such as `useChats` and `useProviders`.

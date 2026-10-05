@@ -12,8 +12,13 @@ import SkillDialog from "./components/SkillDialog.vue";
 import SettingsDialog from "./components/SettingsDialog.vue";
 import { useContext } from "./composables/useContext.js";
 import { parseChatCommand } from "./composables/chatCommands.js";
+import { chatPreferenceKey } from "./composables/chatPreferences.js";
 
-const { chats, activeChat, messages, isStreaming, activeRunChatId, isCompacting, contextRevision, compact, refreshChats, newChat, showHome, openChat, removeChat, renameChat, sendMessage, stopGeneration } = useChats();
+const props = defineProps<{ userId: string; login: string; loggingOut: boolean }>();
+const emit = defineEmits<{ logout: [] }>();
+function handleLogout(): void { stopGeneration(); emit("logout"); }
+
+const { chats, activeChat, messages, isStreaming, activeRunChatId, isCompacting, contextRevision, compact, refreshChats, newChat, openChat, removeChat, renameChat, sendMessage, stopGeneration } = useChats();
 const busy = computed(() => isStreaming.value || isCompacting.value);
 const isStreamingHere = computed(() => isStreaming.value && activeRunChatId.value === activeChat.value?.id);
 const activeRunChat = computed(() => chats.value.find(chat => chat.id === activeRunChatId.value) ?? null);
@@ -40,7 +45,7 @@ const sendOptions = computed(() => ({
 }));
 const { budget: previewBudget, error: contextError, updating: contextUpdating } = useContext(() => ({ chatId: activeChat.value?.id ?? "", content: draft.value, options: sendOptions.value, revision: messages.value.length + contextRevision.value, streaming: isStreamingHere.value || isCompacting.value }));
 const budget = computed(() => isStreamingHere.value ? messages.value.findLast((item) => item.role === "user")?.context?.budget ?? previewBudget.value : previewBudget.value);
-function preferenceKey(): string { return `agenter:chat:${activeChat.value?.id ?? 'new'}`; }
+function preferenceKey(): string { return chatPreferenceKey(props.userId, activeChat.value?.id ?? null); }
 let restoring = false;
 watch([draft, attachments, responseFormat, selectedProviderId, selectedSkillId, manualServerIds, automaticServerIds, historyLimit], () => {
   if (restoring) return;
@@ -50,7 +55,7 @@ async function selectChat(id: string): Promise<void> {
   if (isCompacting.value) return;
   try {
     restoring = true;
-    const saved = localStorage.getItem(`agenter:chat:${id}`);
+    const saved = localStorage.getItem(chatPreferenceKey(props.userId, id));
     await openChat(id);
     if (activeChat.value?.id !== id) return;
     const value = saved ? JSON.parse(saved) as { draft?: string; attachments?: unknown; responseFormat?: unknown; providerId?: string; skillId?: string; serverIds?: string[]; manualServerIds?: string[]; automaticServerIds?: string[]; historyLimit?: number } : {};
@@ -100,7 +105,7 @@ onMounted(() => {
 const viewport = window.visualViewport;
 function resizeViewport(): void { document.documentElement.style.setProperty("--app-height", `${viewport?.height ?? window.innerHeight}px`); }
 onMounted(() => { resizeViewport(); viewport?.addEventListener("resize", resizeViewport); window.addEventListener("resize", resizeViewport); });
-onUnmounted(() => { viewport?.removeEventListener("resize", resizeViewport); window.removeEventListener("resize", resizeViewport); });
+onUnmounted(() => { stopGeneration(); viewport?.removeEventListener("resize", resizeViewport); window.removeEventListener("resize", resizeViewport); });
 
 async function handleSend(content: string, files: TextAttachment[] = []): Promise<void> {
   if (isStreaming.value || isCompacting.value) return;
@@ -175,6 +180,8 @@ function openSkillDialog(): void {
       @click="mobileMenu=false"
     />
     <Sidebar
+      :login="login"
+      :logging-out="loggingOut"
       :chats="chats"
       :active-chat-id="activeChat?.id ?? null"
       :mobile-open="mobileMenu"
@@ -195,10 +202,10 @@ function openSkillDialog(): void {
       @settings="openSettings(); mobileMenu=false"
       @settings-mcp="openSettings('mcp'); mobileMenu=false"
       @new-chat="handleNewChat"
-      @home="showHome(); mobileMenu=false"
       @select-chat="selectChat"
       @delete-chat="handleDelete"
       @rename-chat="handleRenameChat"
+      @logout="handleLogout"
     />
     <ChatView
       ref="chatView"

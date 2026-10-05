@@ -6,6 +6,8 @@ import CapabilitySwitches from "./CapabilitySwitches.vue";
 import { groupChats } from "./chatList.js";
 
 const props = defineProps<{
+  login: string;
+  loggingOut: boolean;
   chats: Chat[];
   activeChatId: string | null;
   mobileOpen?: boolean;
@@ -38,8 +40,8 @@ function updateMobileViewport(): void {
 }
 
 const emit = defineEmits<{
+  logout: [];
   newChat: [];
-  home: [];
   selectChat: [id: string];
   deleteChat: [id: string];
   close: [];
@@ -140,24 +142,6 @@ function cancelRename(): void {
         <path d="M12 5v14M5 12h14" />
       </svg>
       Новый диалог
-    </button>
-    <button
-      type="button"
-      class="workspace-nav"
-      :aria-current="!activeChatId ? 'page' : undefined"
-      :disabled="busy"
-      @click="emit('home')"
-    >
-      <svg
-        width="18"
-        height="18"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.6"
-        aria-hidden="true"
-      ><path d="M4 4h16v12H8l-4 4V4Z" /><path d="M8 8h8M8 12h5" /></svg>
-      Чат
     </button>
     <div class="chat-search">
       <label for="chat-search-input">История</label>
@@ -351,7 +335,15 @@ function cancelRename(): void {
         class="workspace-avatar"
         aria-hidden="true"
       >A</span>
-      <div><strong>Личное пространство</strong><span><span class="sidebar-footer-dot" /> Локальный Agenter</span></div>
+      <div><strong>{{ login }}</strong><span><span class="sidebar-footer-dot" /> Личное окружение</span></div>
+      <button
+        class="logout-button"
+        type="button"
+        :disabled="loggingOut"
+        @click="emit('logout')"
+      >
+        Выйти
+      </button>
     </div>
   </aside>
 </template>
