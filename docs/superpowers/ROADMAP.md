@@ -32,6 +32,12 @@ interface design and review instructions. See [skill catalog](../skills.ru.md)
 and the latest follow-up in the 2026-09-28 plan.
 This does not implement LLM pre-routing or the remaining Phase 9 scope.
 
+User-authorized follow-up (2026-10-05), issue #2: the composer suggests
+`/model`, `/new` and `/compact` while editing a leading slash command.
+Suggestions filter by prefix and support mouse/touch, arrows, Enter/Tab and
+Escape. Completion only edits the draft; command execution and attachments
+retain their existing behavior. See the 2026-09-28 UX follow-up plan.
+
 ## Dependency order
 
 Phase 3 depends on Phase 2. Phase 4 depends on Phase 3. Phase 5 defines the

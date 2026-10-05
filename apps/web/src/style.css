@@ -180,7 +180,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .composer-wrap { position: relative; z-index: 4; flex: none; width: min(calc(100% - 48px), var(--content-width)); margin: 0 auto; padding-bottom: 15px; }
 .composer { border: 1px solid var(--border); border-radius: 17px; background: #fff; box-shadow: 0 7px 25px rgba(30, 50, 60, .045), 0 1px 2px rgba(30, 50, 60, .03); }
 .composer:focus-within { border-color: #a7b9b2; }
-.message-input { padding: 17px 18px 0; }
+.message-input { position: relative; padding: 17px 18px 0; }
 .text-attachments { display: flex; flex-wrap: wrap; gap: 8px; max-height: 190px; overflow: auto; margin: 0 0 10px; padding: 1px; }
 .text-attachment { flex: 1 1 210px; min-width: 0; max-width: 340px; padding: 10px 12px; border: 1px solid #e1e3e5; border-radius: 12px; background: #fafaf9; }
 .attachment-heading { display: flex; align-items: center; gap: 7px; min-width: 0; }
@@ -219,6 +219,11 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .file-preview-dialog header button { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: white; color: #596154; }
 .file-preview-dialog iframe { flex: 1; min-height: 0; width: 100%; border: 0; }
 .message-input-inner { display: grid; grid-template-columns: 1fr 36px; align-items: center; gap: 8px; }
+.command-suggestions { position: absolute; bottom: calc(100% + 8px); left: 18px; right: 18px; z-index: 6; max-height: min(240px, 35dvh); overflow-y: auto; margin: 0; padding: 5px; list-style: none; border: 1px solid var(--border); border-radius: 12px; background: #fff; box-shadow: 0 8px 24px rgba(30, 50, 60, .12); }
+.command-suggestions li { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-height: 44px; padding: 8px 10px; border-radius: 7px; cursor: pointer; }
+.command-suggestions li[aria-selected="true"] { background: #edf3ef; }
+.command-suggestions strong { color: var(--text); font-size: 13px; }
+.command-suggestions span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .message-input textarea { grid-column: 1 / -1; grid-row: 1; width: 100%; min-width: 0; min-height: 65px; max-height: 190px; resize: vertical; padding: 4px 2px; border: 0; background: transparent; color: var(--text); font-size: 14px; line-height: 1.55; }
 .message-input textarea:focus-visible { outline-offset: 4px; outline-color: #c0d3c9; }
 .message-input textarea::placeholder { color: #869096; }

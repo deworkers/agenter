@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from "vue";
+import { computed, nextTick, ref, useId } from "vue";
 import type { TextAttachment } from "../api/types.js";
 import { useTextAttachments } from "../composables/useTextAttachments.js";
+import { useCommandSuggestions } from "../composables/useCommandSuggestions.js";
 import { textFileAccept } from "../composables/textFiles.js";
 import TextAttachments from "./TextAttachments.vue";
 
@@ -20,6 +21,9 @@ const draft = defineModel<string>("draft", { default: "" });
 const attachments = defineModel<TextAttachment[]>("attachments", { required: true });
 const fileInput = ref<HTMLInputElement | null>(null);
 const textarea = ref<HTMLTextAreaElement | null>(null);
+const commandListId = useId();
+const commandState = useCommandSuggestions(draft, () => props.draftKey, () => !!props.streaming);
+const { suggestions, activeIndex } = commandState;
 defineExpose({ focus: () => textarea.value?.focus() });
 const { error, loading, addFiles, paste, insertClipboard } = useTextAttachments(attachments, () => props.draftKey);
 const canSend = computed(() => !props.disabled && !loading.value && (!!draft.value.trim() || !!attachments.value.length));
@@ -56,7 +60,31 @@ function submit(): void {
   if (!content.startsWith("/")) attachments.value = [];
 }
 
+function updateSelection(): void {
+  if (textarea.value) commandState.updateSelection(textarea.value.selectionStart, textarea.value.selectionEnd);
+}
+function focusCommands(): void {
+  if (textarea.value) commandState.focus(textarea.value.selectionStart, textarea.value.selectionEnd);
+}
+function setCursor(cursor: number): void {
+  void nextTick(() => {
+    textarea.value?.focus();
+    textarea.value?.setSelectionRange(cursor, cursor);
+    updateSelection();
+  });
+}
+function chooseCommand(index: number): void {
+  const cursor = commandState.complete(index);
+  if (cursor !== undefined) setCursor(cursor);
+}
 function onKeydown(event: KeyboardEvent): void {
+  updateSelection();
+  const result = commandState.handleKeydown(event);
+  if (result.handled) {
+    event.preventDefault();
+    if (result.cursor !== undefined) setCursor(result.cursor);
+    return;
+  }
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     submit();
@@ -95,6 +123,27 @@ function onKeydown(event: KeyboardEvent): void {
       @change="pickFiles"
     >
     <div class="message-input-inner">
+      <ul
+        v-if="suggestions.length"
+        :id="commandListId"
+        class="command-suggestions"
+        role="listbox"
+        aria-label="Слеш-команды"
+      >
+        <li
+          v-for="(command, index) in suggestions"
+          :id="`${commandListId}-${index}`"
+          :key="command.name"
+          role="option"
+          :aria-selected="index === activeIndex"
+          @pointerdown.prevent
+          @click="chooseCommand(index)"
+          @mouseenter="activeIndex = index"
+        >
+          <strong>/{{ command.name }}</strong>
+          <span>{{ command.description }}</span>
+        </li>
+      </ul>
       <button
         type="button"
         class="attach-button"
@@ -127,9 +176,20 @@ function onKeydown(event: KeyboardEvent): void {
         v-model="draft"
         :disabled="props.streaming"
         aria-label="Сообщение"
+        aria-autocomplete="list"
+        aria-haspopup="listbox"
+        :aria-expanded="!!suggestions.length"
+        :aria-controls="suggestions.length ? commandListId : undefined"
+        :aria-activedescendant="suggestions.length ? `${commandListId}-${activeIndex}` : undefined"
         placeholder="Напишите, что нужно сделать…"
         rows="2"
         @keydown="onKeydown"
+        @keyup="updateSelection"
+        @click="updateSelection"
+        @select="updateSelection"
+        @input="focusCommands"
+        @focus="focusCommands"
+        @blur="commandState.blur"
         @paste="paste"
       />
       <button

@@ -122,6 +122,28 @@ Local-model memory smoke preserved 24 messages and reduced estimated history
 also reopen the database to verify checkpoint persistence and cascade cleanup.
 Physical mobile keyboard behavior and full Phase 9 work remain outside this check.
 
+## Command completion — issue #2 (2026-10-05)
+
+User requested implementation of issue #2. The composer now suggests the
+existing `/model`, `/new` and `/compact` commands when the cursor is inside a
+leading slash token. Prefix filtering ignores case. Arrow keys select an
+option; Enter/Tab or mouse/touch inserts the command and leaves the draft
+editable. A second Enter executes through the existing local command handler.
+Escape, blur, switching chats and streaming close the list. Arguments and
+attachments remain intact; Shift+Enter and IME input retain normal behavior.
+The list uses accessible option selection and is placed above the composer
+with a viewport-bounded height.
+
+Verified on Node v24.19.0: ten focused suggestion tests and all 298 workspace
+tests passed, along with root typecheck, lint and the production web build.
+Lint has no errors or new warnings (540 existing warnings in SettingsDialog).
+An isolated Chrome composer preview verified filtering, arrows, Enter/Tab,
+mouse selection, Escape, Shift+Enter, normal submission and attachment
+preservation. Checks at 320/390/768 px found no horizontal overflow; chat
+changes and streaming hide the list. A delayed controlled v-model update is
+covered by a regression test. The temporary preview was removed; no real
+provider/MCP calls or physical mobile keyboard checks were performed.
+
 ## Approved text-document follow-up (2026-09-28)
 
 User requested text file attachments, separate text-only clipboard cards,
